@@ -3,7 +3,7 @@ extends RefCounted
 
 enum Difficulty { EASY, MEDIUM, HARD }
 
-const BALL_DIAMETER := 0.29
+const BALL_DIAMETER := 0.225
 const TABLE_MIN_X := -4.18
 const TABLE_MAX_X := 4.18
 const TABLE_MIN_Z := -1.98

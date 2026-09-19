@@ -51,6 +51,15 @@ fresh rack each turn), the scoreboard shows a row per bowler with the one who's 
 everyone. The single-player `process_throw` / throw-record path is unchanged, so online play can drive it.
 Tests use a scratch settings file (`BowlingSettings.path`), never the player's own.
 
+**Between balls** the pinsetter runs (`pinsetter.gd` `animate`): the sweep bar drops and rakes the deadwood
+into the pit, and the table lifts the standing pins (second ball) or sets a fresh rack; A / Enter hurries it.
+
+**Oil** varies more per game (length, slickness, dry back end, crown, and `skew` - one side drier) and breaks
+down faster; a repeated pocket line strikes about a third of the time (`tests/strike_rate.gd` measures it).
+
+**Pin sounds:** the default pin contacts have a heavier low end; the bone set keeps the original lighter
+sounds (`audio/bone_*.wav`). `python tools/make_sounds.py --pins` regenerates only the default pin families.
+
 **Painted call-outs:** drop `strike.png`, `spare.png`, `miss.png` or `gutter.png` into `art/callouts/`
 (transparent, about 2:1; see the README there) and it replaces the text for that result.
 

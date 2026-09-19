@@ -1,14 +1,19 @@
-; Spectral Manor Billiards
-; Godot 4.7.2 project configuration
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
 [application]
 
 config/name="Spectral Manor Billiards"
+config/version="0.6.0"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
-config/version="0.6.0"
 
 [display]
 
@@ -18,20 +23,17 @@ window/size/window_width_override=1280
 window/size/window_height_override=720
 window/stretch/mode="canvas_items"
 
-[rendering]
-
-renderer/rendering_method="gl_compatibility"
-renderer/rendering_method.mobile="gl_compatibility"
-textures/default_filters/use_nearest_mipmap_filter=false
-
-[physics]
-
-common/physics_ticks_per_second=60
-3d/default_gravity=9.8
-3d/physics_engine="Jolt Physics"
-
 [layer_names]
 
 3d_physics/layer_1="Balls"
 3d_physics/layer_2="Table"
 3d_physics/layer_3="Pockets"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

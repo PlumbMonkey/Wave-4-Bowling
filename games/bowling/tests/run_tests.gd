@@ -10,7 +10,7 @@ func _initialize() -> void:
 	BowlingSettings.path = "user://test_settings.cfg"
 	DirAccess.remove_absolute(BowlingSettings.path)
 	# a script error kills the coroutine silently - never hang the shell
-	create_timer(150.0).timeout.connect(func():
+	create_timer(240.0).timeout.connect(func():
 		print("TIMEOUT - a test coroutine died (see script errors above)")
 		quit(2))
 	_run.call_deferred()
@@ -243,6 +243,41 @@ func _run() -> void:
 	game.menus.close()
 	for k in ["players", "names", "balls", "best"]:
 		BowlingSettings.save_value(k, saved[k])
+
+	game.cycle_pins(0)
+	game.pin_style = "bone"
+	game._apply_pins(false)
+	check(game.audio.sound_set == "bone_" and game.audio._streams["bone_pin_pin"].size() == 8,
+		"bone pins play the original pin sounds; the others the deep set")
+	game.pin_style = "classic"
+	game._apply_pins(false)
+	check(game.audio.sound_set == "", "classic pins play the deep set")
+
+	print("== pinsetter")
+	game.show_title()
+	game.menus.close()
+	var ps: Pinsetter = game.setter
+	for i in 6:                                    # knock six over
+		var pin: BowlingPin = ps.pins[i]
+		pin.freeze = true
+		pin.global_transform = Transform3D(Basis(Vector3.RIGHT, PI / 2), pin.spot + Vector3(0, 0.06, 0.1))
+	ps.animate("deadwood")
+	var t0 := Time.get_ticks_msec()
+	await ps.cycle_done
+	var took := (Time.get_ticks_msec() - t0) / 1000.0
+	var upright := ps.standing()
+	check(upright.size() == 4 and ps.pins.slice(0, 6).all(func(p): return not p.in_play())
+		and upright.all(func(p): return absf(p.global_position.y) < 0.01 and not p.freeze),
+		"second ball: the table lifts the 4 standing, the bar sweeps the 6 down, the 4 go back (%.1f s)" % took)
+	ps.animate("full")
+	await ps.cycle_done
+	check(ps.standing().size() == 10 and ps.pins.all(func(p): return p.global_position.distance_to(p.spot) < 0.01)
+		and not ps.busy and not ps._bar.visible, "a full cycle sets ten fresh pins on their spots and parks the machine")
+	ps.animate("full")
+	ps.full_rack()                                 # e.g. a new game mid-cycle
+	for i in 90:
+		await physics_frame
+	check(ps.standing().size() == 10 and not ps.busy, "cancelling mid-cycle leaves a clean rack")
 	game.show_title()
 	check(game.state == game.State.TITLE and not game.ball.visible, "quit to title hides the ball and opens the title")
 	game.menus.close()

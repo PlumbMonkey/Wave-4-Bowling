@@ -12,8 +12,8 @@ const ManorAudioClass = preload("res://scripts/manor_audio.gd")
 const TABLE_LENGTH := 8.8
 const TABLE_WIDTH := 4.4
 const BED_Y := 0.92
-const BALL_RADIUS := 0.145
-const BALL_Y := BED_Y + BALL_RADIUS + 0.012
+const BALL_RADIUS := 0.1125
+const BALL_Y := BED_Y + BALL_RADIUS + 0.006
 const STOP_SPEED := 0.035
 const MAX_SHOT_IMPULSE := 4.2
 
@@ -30,7 +30,7 @@ var soundscape: ManorAudio
 var aim_guide: AimGuide
 var tactical_guide: AimGuide
 var trajectory_guide: TrajectoryGuide
-var cue_visual: MeshInstance3D
+var cue_visual: Node3D
 var camera: Camera3D
 var camera_yaw := 0.0
 var camera_pitch := 0.38
@@ -526,8 +526,8 @@ func _update_cue_visual(direction: Vector3) -> void:
 		return
 	cue_visual.visible = true
 	var pullback := 0.36 + charge * 0.75
-	var center := cue_ball.global_position - direction * (1.45 + pullback)
-	center.y += 0.11
+	var center := cue_ball.global_position - direction * (1.43 + pullback)
+	center.y += 0.045
 	cue_visual.global_position = center
 	cue_visual.look_at(center + direction, Vector3.UP)
 	cue_visual.rotate_object_local(Vector3.RIGHT, PI * 0.5)
@@ -784,10 +784,10 @@ func _build_table() -> void:
 	# Cushions are split around corner and side-pocket openings.
 	for z in [-TABLE_WIDTH * 0.5 - 0.12, TABLE_WIDTH * 0.5 + 0.12]:
 		for x in [-2.25, 2.25]:
-			var rail := _create_static_box("LongCushion", Vector3(3.72, 0.34, 0.30), Vector3(x, BED_Y + 0.08, z), mahogany, 2)
+			var rail := _create_static_box("LongCushion", Vector3(3.72, 0.22, 0.30), Vector3(x, BED_Y + 0.03, z), mahogany, 2)
 			rail.physics_material_override = rubber
 	for x in [-TABLE_LENGTH * 0.5 - 0.12, TABLE_LENGTH * 0.5 + 0.12]:
-		var rail := _create_static_box("EndCushion", Vector3(0.30, 0.34, 3.55), Vector3(x, BED_Y + 0.08, 0.0), mahogany, 2)
+		var rail := _create_static_box("EndCushion", Vector3(0.30, 0.22, 3.55), Vector3(x, BED_Y + 0.03, 0.0), mahogany, 2)
 		rail.physics_material_override = rubber
 
 	for x in [-3.8, 3.8]:
@@ -817,43 +817,48 @@ func _build_table() -> void:
 
 
 func _build_pocket(pocket_position: Vector3, brass: Material) -> void:
+	var surface_position := Vector3(pocket_position.x, BED_Y, pocket_position.z)
 	var rim := MeshInstance3D.new()
+	rim.name = "RecessedPocketRim"
 	var torus := TorusMesh.new()
-	torus.inner_radius = 0.22
-	torus.outer_radius = 0.34
+	torus.inner_radius = 0.165
+	torus.outer_radius = 0.225
 	torus.rings = 24
 	torus.ring_segments = 12
 	rim.mesh = torus
 	rim.material_override = brass
-	rim.position = pocket_position - Vector3.UP * 0.05
+	rim.position = surface_position - Vector3.UP * 0.018
+	rim.scale.y = 0.24
 	add_child(rim)
 	var darkness := MeshInstance3D.new()
+	darkness.name = "PocketDrop"
 	var dark_mesh := CylinderMesh.new()
-	dark_mesh.top_radius = 0.235
-	dark_mesh.bottom_radius = 0.18
-	dark_mesh.height = 0.11
+	dark_mesh.top_radius = 0.17
+	dark_mesh.bottom_radius = 0.145
+	dark_mesh.height = 0.045
 	darkness.mesh = dark_mesh
 	darkness.material_override = _material(Color("010203"), 1.0, 0.0)
-	darkness.position = pocket_position - Vector3.UP * 0.09
+	darkness.position = surface_position - Vector3.UP * 0.019
 	add_child(darkness)
 
 	var area := Area3D.new()
 	area.name = "Pocket"
 	area.collision_layer = 4
 	area.collision_mask = 1
-	area.position = pocket_position
+	area.position = Vector3(pocket_position.x, BALL_Y - 0.035, pocket_position.z)
 	var collision := CollisionShape3D.new()
 	var shape := SphereShape3D.new()
-	shape.radius = 0.28
+	shape.radius = 0.205
 	collision.shape = shape
 	area.add_child(collision)
 	add_child(area)
 	area.body_entered.connect(_on_pocket_body_entered.bind(pocket_position))
 
 	var marker := MeshInstance3D.new()
+	marker.name = "CalledPocketMarker"
 	var marker_mesh := TorusMesh.new()
-	marker_mesh.inner_radius = 0.29
-	marker_mesh.outer_radius = 0.40
+	marker_mesh.inner_radius = 0.205
+	marker_mesh.outer_radius = 0.265
 	marker_mesh.rings = 24
 	marker_mesh.ring_segments = 10
 	marker.mesh = marker_mesh
@@ -862,7 +867,8 @@ func _build_pocket(pocket_position: Vector3, brass: Material) -> void:
 	marker_material.emission = Color("3dffd1")
 	marker_material.emission_energy_multiplier = 3.0
 	marker.material_override = marker_material
-	marker.position = pocket_position + Vector3.UP * 0.025
+	marker.position = surface_position + Vector3.UP * 0.018
+	marker.scale.y = 0.3
 	marker.visible = false
 	add_child(marker)
 	pocket_markers.append(marker)
@@ -898,21 +904,34 @@ func _create_ball(number: int, spawn_position: Vector3, color: Color) -> Spectra
 	ball.physics_material_override.bounce = 0.94
 
 	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.name = "BallShell"
 	var sphere := SphereMesh.new()
 	sphere.radius = BALL_RADIUS
 	sphere.height = BALL_RADIUS * 2.0
-	sphere.radial_segments = 32
-	sphere.rings = 16
+	sphere.radial_segments = 48
+	sphere.rings = 24
 	mesh_instance.mesh = sphere
-	var material := _material(color, 0.12, 0.32)
+	var shell_color := Color("eee2c6") if number >= 9 else color
+	var material := _material(shell_color, 0.12, 0.26)
 	material.clearcoat_enabled = true
 	material.clearcoat = 0.9
 	material.clearcoat_roughness = 0.08
 	material.emission_enabled = number != 0
-	material.emission = color * 0.28
-	material.emission_energy_multiplier = 0.55
+	material.emission = shell_color * 0.2
+	material.emission_energy_multiplier = 0.34
 	mesh_instance.material_override = material
 	ball.add_child(mesh_instance)
+	if number >= 9:
+		var stripe := MeshInstance3D.new()
+		stripe.name = "StripeBand"
+		var stripe_sphere := SphereMesh.new()
+		stripe_sphere.radius = BALL_RADIUS + 0.0012
+		stripe_sphere.height = (BALL_RADIUS + 0.0012) * 2.0
+		stripe_sphere.radial_segments = 48
+		stripe_sphere.rings = 24
+		stripe.mesh = stripe_sphere
+		stripe.material_override = _stripe_material(color)
+		ball.add_child(stripe)
 
 	var collision := CollisionShape3D.new()
 	var shape := SphereShape3D.new()
@@ -920,15 +939,29 @@ func _create_ball(number: int, spawn_position: Vector3, color: Color) -> Spectra
 	collision.shape = shape
 	ball.add_child(collision)
 
+	var medallion := MeshInstance3D.new()
+	medallion.name = "NumberMedallion"
+	var medallion_mesh := CylinderMesh.new()
+	medallion_mesh.top_radius = BALL_RADIUS * 0.30
+	medallion_mesh.bottom_radius = BALL_RADIUS * 0.30
+	medallion_mesh.height = 0.003
+	medallion_mesh.radial_segments = 32
+	medallion.mesh = medallion_mesh
+	medallion.material_override = _material(Color("f3e8ca"), 0.2, 0.08)
+	medallion.position = Vector3(0.0, BALL_RADIUS - 0.0015, 0.0)
+	ball.add_child(medallion)
+
 	var number_label := Label3D.new()
+	number_label.name = "SurfaceNumber"
 	number_label.text = "☾" if number == 0 else str(number)
-	number_label.font_size = 48
-	number_label.outline_size = 9
-	number_label.modulate = Color("f9e6bd")
-	number_label.outline_modulate = Color("160a0d")
-	number_label.position = Vector3(0.0, BALL_RADIUS + 0.014, 0.0)
+	number_label.font_size = 36
+	number_label.outline_size = 4
+	number_label.modulate = Color("171013")
+	number_label.outline_modulate = Color("e9d9b8")
+	number_label.position = Vector3(0.0, BALL_RADIUS + 0.0008, 0.0)
 	number_label.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
-	number_label.pixel_size = 0.0032
+	number_label.pixel_size = 0.00135
+	number_label.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	ball.add_child(number_label)
 
 	add_child(ball)
@@ -937,6 +970,34 @@ func _create_ball(number: int, spawn_position: Vector3, color: Color) -> Spectra
 	if number == 0:
 		ball.contacted_ball.connect(_on_cue_contacted_ball)
 	return ball
+
+
+func _stripe_material(color: Color) -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
+uniform vec4 stripe_color : source_color;
+uniform float stripe_half_width = 0.052;
+varying float local_height;
+void vertex() {
+	local_height = VERTEX.y;
+}
+void fragment() {
+	if (abs(local_height) > stripe_half_width) {
+		discard;
+	}
+	ALBEDO = stripe_color.rgb;
+	METALLIC = 0.22;
+	ROUGHNESS = 0.12;
+	SPECULAR = 0.8;
+	EMISSION = stripe_color.rgb * 0.12;
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("stripe_color", color)
+	return material
 
 
 func _build_camera_and_aiming() -> void:
@@ -955,15 +1016,35 @@ func _build_camera_and_aiming() -> void:
 	add_child(trajectory_guide)
 	trajectory_guide.hide_guide()
 
-	cue_visual = MeshInstance3D.new()
-	var cue_mesh := CylinderMesh.new()
-	cue_mesh.top_radius = 0.025
-	cue_mesh.bottom_radius = 0.055
-	cue_mesh.height = 2.65
-	cue_mesh.radial_segments = 16
-	cue_visual.mesh = cue_mesh
-	cue_visual.material_override = _material(Color("5b1a13"), 0.25, 0.32)
+	cue_visual = Node3D.new()
+	cue_visual.name = "PlayerCue"
+	var ebony := _material(Color("130d12"), 0.24, 0.18)
+	var burgundy := _material(Color("551018"), 0.2, 0.22)
+	var leather := _material(Color("241419"), 0.78, 0.02)
+	var maple := _material(Color("d9bd8c"), 0.3, 0.04)
+	var ivory := _material(Color("eee2c6"), 0.2, 0.06)
+	var tip_blue := _material(Color("2f7891"), 0.62, 0.02)
+	_add_cue_section("Butt", 0.94, 0.78, 0.047, 0.057, ebony)
+	_add_cue_section("Inlay", 0.22, 0.20, 0.044, 0.048, burgundy)
+	_add_cue_section("LeatherWrap", 0.46, -0.14, 0.039, 0.044, leather)
+	_add_cue_section("MapleShaft", 0.92, -0.83, 0.022, 0.038, maple)
+	_add_cue_section("Ferrule", 0.10, -1.34, 0.022, 0.023, ivory)
+	_add_cue_section("ChalkedTip", 0.045, -1.4125, 0.020, 0.022, tip_blue)
 	add_child(cue_visual)
+
+
+func _add_cue_section(section_name: String, length: float, local_y: float, bottom_radius: float, top_radius: float, material: Material) -> void:
+	var section := MeshInstance3D.new()
+	section.name = section_name
+	var mesh := CylinderMesh.new()
+	mesh.height = length
+	mesh.bottom_radius = bottom_radius
+	mesh.top_radius = top_radius
+	mesh.radial_segments = 24
+	section.mesh = mesh
+	section.material_override = material
+	section.position.y = local_y
+	cue_visual.add_child(section)
 
 
 func _build_ui() -> void:
