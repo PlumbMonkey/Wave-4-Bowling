@@ -19,7 +19,7 @@ signal roll_scored(pins: int, card: ScoreCard)
 ## { v, params: {x, aim, power, spin}, inputs: [spin, steer] per physics tick, pins, ball_end }
 signal throw_completed(record: Dictionary)
 
-enum State { TITLE, AIM, ROLL, SETTLE, RESULT, REPLAY, GAME_OVER }
+enum State { TITLE, AIM, ROLL, SETTLE, RESULT, REPLAY, RESET, GAME_OVER }
 
 const SETTLE_TIMEOUT := 5.0
 const RESULT_HOLD := 2.6         ## how long the replay offer stays up
@@ -201,7 +201,7 @@ func process_throw(params: Dictionary) -> void:
 	var s := clampf(float(params.get("spin", 0.0)), -1.0, 1.0)
 	# no two throws alike: the lane surface varies a little (part of the record,
 	# so a remote copy of this throw rolls on the same lane)
-	var j := float(params.get("jitter", _lane_rng.randf_range(0.96, 1.04)))
+	var j := float(params.get("jitter", _lane_rng.randf_range(0.93, 1.07)))
 	BowlingBall.pattern.jitter = j
 	_standing_before = setter.standing().size()
 	ball.launch(x, a, speed_for(p), s)
@@ -279,6 +279,9 @@ func _physics_process(delta: float) -> void:
 			elif _pressed("confirm") or _pressed("release") \
 					or _result_t > RESULT_HOLD:
 				_advance()
+		State.RESET:
+			if _pressed("confirm") or _pressed("release"):
+				setter.hurry()
 		State.REPLAY:
 			var going := replay.step(delta)
 			audio.replay_to(replay.time(), ThrowReplay.RATE)
@@ -466,12 +469,15 @@ func _advance() -> void:
 	audio.play("pinsetter", Vector3(0.0, 0.9, -19.0), -7.0)
 	if turn_over:
 		_start_turn(next)
-		setter.full_rack()
-	elif card.needs_full_rack():
-		setter.full_rack()
-	else:
-		setter.clear_deadwood()
-	_enter_aim()
+	# watch the machine sweep and set the pins (A / Enter hurries it)
+	state = State.RESET
+	guide.visible = false
+	hud.set_hint("A / Enter  Hurry the pinsetter")
+	var kind := "full" if turn_over or card.needs_full_rack() else "deadwood"
+	setter.animate(kind)
+	await setter.cycle_done
+	if state == State.RESET:
+		_enter_aim()
 
 
 ## The next bowler with frames left to bowl, after the current one (the same one
@@ -613,6 +619,10 @@ func _update_camera(delta: float) -> void:
 	var bp := ball.global_position
 	var rate := 5.0
 	match state:
+		State.RESET:
+			pos = Vector3(0.35, 0.85, -15.3)
+			look = Vector3(0.0, 0.4, -18.8)
+			rate = 3.0
 		State.TITLE:
 			# a slow drift down the aisle behind the title menu
 			var tt := Time.get_ticks_msec() * 0.001
@@ -757,7 +767,9 @@ func _apply_pins(announce: bool) -> void:
 	pin_style = BowlingPin.style
 	if theme:
 		theme.set_pin_style(pin_style)
-	audio.pin_pitch = {"bone": 1.14, "reliquary": 1.06}.get(pin_style, 1.0)
+	# the bone set keeps the original, lighter pin sounds; the others get the deep set
+	audio.sound_set = "bone_" if pin_style == "bone" else ""
+	audio.pin_pitch = {"reliquary": 1.06}.get(pin_style, 1.0)
 	if announce:
 		audio.play("select", null, -10.0, 0.8)
 		hud.flash("%s PINS" % String(BowlingPin.STYLES[pin_style].name).to_upper(), BowlingHud.INK, 0.5)

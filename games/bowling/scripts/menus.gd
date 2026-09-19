@@ -140,7 +140,7 @@ func _build_pause() -> void:
 	_first["pause"] = _button(col, "RESUME", close)
 	_button(col, "RESTART GAME", func(): close(); game.restart_game())
 	_button(col, "SETTINGS", func(): _open_settings("pause"))
-	_button(col, "QUIT TO TITLE", func(): close(); game.show_title())
+	_button(col, "QUIT TO MAIN MENU", func(): close(); game.show_title())
 
 
 func _build_settings() -> void:
@@ -184,7 +184,7 @@ func _build_over() -> void:
 	_first["over"] = _button(col, "BOWL AGAIN", func(): close(); game.restart_game())
 	# try something different for the next game without going back to the title
 	_game_rows(col, "over")
-	_button(col, "TITLE", func(): close(); game.show_title())
+	_button(col, "MAIN MENU", func(): close(); game.show_title())
 
 
 ## Fill in and show the game-over screen. *who* is the game's players list

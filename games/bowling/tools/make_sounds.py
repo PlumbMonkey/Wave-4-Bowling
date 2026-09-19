@@ -7,7 +7,7 @@ resonances (a pin rings at a handful of frequencies), the stingers are additive
 organ tones and bell partials through a synthetic hall reverb. The loops are
 built to wrap seamlessly (their periodic parts fit the buffer exactly).
 """
-import os
+import os, sys
 import numpy as np
 from scipy import signal
 from scipy.io import wavfile
@@ -196,8 +196,9 @@ def pin_pin(k):
     x += click(n, rng.uniform(0.9, 1.3), 2000, 10000, 0.0015)
     # the weight behind the clack: a short low thock
     thock = np.sin(2 * np.pi * rng.uniform(150, 210) * t) * np.exp(-t / 0.028)
-    thock += lowpass(rng.standard_normal(n), 350) * env(n, 0.012, 0.0004) * 2.5
-    x += contact(thock, 0.6) * 1.1
+    thock += 0.6 * np.sin(2 * np.pi * rng.uniform(95, 125) * t) * np.exp(-t / 0.04)
+    thock += lowpass(rng.standard_normal(n), 300) * env(n, 0.016, 0.0004) * 3.0
+    x += contact(thock, 0.6) * 1.25
     return fade(x, 0.0002, 0.04)
 
 
@@ -208,9 +209,10 @@ def ball_pin(k):
     n = int(dur * SR)
     t = np.arange(n) / SR
     ball = sum(a * np.sin(2 * np.pi * f * t) * np.exp(-t / d) for f, d, a in
-               ((rng.uniform(62, 78), 0.075, 1.2), (rng.uniform(125, 165), 0.055, 1.3),
+               ((rng.uniform(48, 58), 0.13, 1.5), (rng.uniform(62, 78), 0.11, 2.0),
+                (rng.uniform(125, 165), 0.07, 1.8),
                 (rng.uniform(420, 520), 0.025, 0.4), (rng.uniform(950, 1250), 0.012, 0.25)))
-    ball += lowpass(rng.standard_normal(n), 300) * env(n, 0.02, 0.0005) * 3.0
+    ball += lowpass(rng.standard_normal(n), 260) * env(n, 0.026, 0.0005) * 4.2
     x = contact(pin_ring(dur, 1.3) + ball * 1.5, rng.uniform(0.18, 0.3))
     x += click(n, 1.5, 1800, 10000, 0.0022)
     if rng.random() < 0.7:
@@ -229,9 +231,10 @@ def pin_lane(k):
         m = int(0.3 * SR)
         tt = np.arange(m) / SR
         thud = bandnoise(m, 130, 700) * env(m, 0.018, 0.0004)
-        body = np.sin(2 * np.pi * rng.uniform(115, 150) * tt) * np.exp(-tt / 0.025)
+        body = np.sin(2 * np.pi * rng.uniform(90, 130) * tt) * np.exp(-tt / 0.032)
+        boom = np.sin(2 * np.pi * rng.uniform(58, 74) * tt) * np.exp(-tt / 0.05)
         ring = pin_ring(0.3, 0.9, damp=0.7)
-        return contact(thud * 1.3 + body * 0.9 + ring, rng.uniform(0.35, 0.6)) * gain + \
+        return contact(thud * 1.3 + body * 1.5 + boom * 0.9 + ring, rng.uniform(0.35, 0.6)) * gain + \
             click(m, 0.8 * gain, 1500, 8000, 0.002)
     x = np.zeros(n)
     at, g = 0.0, 1.0
@@ -248,8 +251,9 @@ def pin_kick(k):
     n = int(dur * SR)
     t = np.arange(n) / SR
     panel = sum(a * np.sin(2 * np.pi * f * t) * np.exp(-t / d) for f, d, a in
-                ((rng.uniform(260, 340), 0.07, 1.0), (rng.uniform(520, 640), 0.04, 0.5)))
-    x = contact(pin_ring(dur, 1.0) + panel * 0.6, 0.3) + click(n, 1.0, 1800, 9000, 0.002)
+                ((rng.uniform(85, 105), 0.08, 0.9), (rng.uniform(200, 260), 0.08, 1.0),
+                 (rng.uniform(420, 520), 0.04, 0.5)))
+    x = contact(pin_ring(dur, 1.0) + panel * 0.9, 0.3) + click(n, 1.0, 1800, 9000, 0.002)
     return fade(x, 0.0002, 0.05)
 
 
@@ -257,7 +261,7 @@ def pin_pit(k):
     """A pin tumbling into the pit - muffled by the cushion."""
     x = lowpass(pin_lane(k), 1400) * 0.8
     n = len(x)
-    x += lowpass(rng.standard_normal(n), 180) * env(n, 0.08, 0.004) * 2.0
+    x += lowpass(rng.standard_normal(n), 160) * env(n, 0.09, 0.004) * 2.8
     return fade(x, 0.0005, 0.08)
 
 
@@ -271,8 +275,9 @@ def crash(k):
     x = np.zeros(n)
     place(x, ball_pin(k), 0.0, 1.2)
     tt0 = np.arange(n) / SR
-    x += (np.sin(2 * np.pi * 58 * tt0) * np.exp(-tt0 / 0.11) * 1.4
-          + lowpass(rng.standard_normal(n), 220) * env(n, 0.05, 0.001) * 3.0)
+    x += (np.sin(2 * np.pi * 58 * tt0) * np.exp(-tt0 / 0.17) * 2.3
+          + np.sin(2 * np.pi * 44 * tt0) * np.exp(-tt0 / 0.14) * 1.2
+          + lowpass(rng.standard_normal(n), 180) * env(n, 0.07, 0.001) * 4.0)
     density = (90, 120, 150)[k % 3]
     t = 0.004
     while t < 0.8:
@@ -408,7 +413,25 @@ def select():
                 0.4 * np.sin(2 * np.pi * 1976 * t) * np.exp(-t / 0.03), 0.0005, 0.03)
 
 
-if __name__ == "__main__":
+def pins_only():
+    """Just the pin contact families - the rest of the mix stays as it is.
+    (The originals of these, from before the low-end pass, are the bone_*
+    files, which the bone pin set plays.)"""
+    for k in range(1, 7):
+        save("ball_pin_%d" % k, ball_pin(k))
+        save("pin_lane_%d" % k, pin_lane(k))
+    for k in range(1, 9):
+        save("pin_pin_%d" % k, pin_pin(k))
+    for k in range(1, 5):
+        save("pin_kick_%d" % k, pin_kick(k))
+    for k in range(1, 4):
+        save("pin_pit_%d" % k, pin_pit(k))
+        save("crash_%d" % k, crash(k))
+
+
+if __name__ == "__main__" and "--pins" in sys.argv:
+    pins_only()
+elif __name__ == "__main__":
     print("writing", os.path.normpath(OUT))
     save("roll_loop", roll_loop(), 0.8)
     save("gutter_loop", gutter_loop(), 0.8)

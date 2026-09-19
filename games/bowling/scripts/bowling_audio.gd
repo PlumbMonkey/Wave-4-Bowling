@@ -27,6 +27,10 @@ var ball: BowlingBall
 var muted := false
 ## pin sounds are pitched by the pin set (bone is higher and drier)
 var pin_pitch := 1.0
+## The pin-contact sound family in use: "" is the deep default, "bone_" the
+## original, lighter set (kept for the bone pins).
+var sound_set := ""
+const PIN_FAMILIES := ["ball_pin", "pin_pin", "pin_lane", "pin_kick", "pin_pit", "crash"]
 var events: Array = []           ## [t, name, position, volume_db, pitch] for the current throw
 
 var _streams := {}               ## name -> Array[AudioStream]
@@ -59,6 +63,8 @@ func setup(b: BowlingBall, pins: Array) -> void:
 	_load("pin_kick", _variants("pin_kick", 4))
 	_load("pin_pit", _variants("pin_pit", 3))
 	_load("crash", _variants("crash", 3))
+	for fam in PIN_FAMILIES:
+		_load("bone_" + fam, _variants("bone_" + fam, _streams[fam].size()))
 	for n in ["roll_loop", "gutter_loop", "ambience_loop"]:
 		_loop(n)
 
@@ -174,6 +180,8 @@ func _player3d(stream: AudioStream = null) -> AudioStreamPlayer3D:
 # ------------------------------------------------------------ playback ------
 ## Play a one-shot at a position (or at the listener when pos is null).
 func play(key: String, pos = null, volume_db := 0.0, pitch := 1.0) -> void:
+	if sound_set != "" and PIN_FAMILIES.has(key) and not _streams.get(sound_set + key, []).is_empty():
+		key = sound_set + key
 	var list: Array = _streams.get(key, [])
 	if list.is_empty() or muted:
 		return

@@ -11,14 +11,15 @@ extends RefCounted
 const CELL := 0.5                      ## metres per lengthwise cell of the wear map
 const CELLS := 40                      ## 20 m of lane
 const BOARDS := 39
-const WEAR_PER_BALL := 0.006           ## friction added to each cell a ball rolls through
-const WEAR_MAX := 0.05
-const CARRY_PER_BALL := 0.08           ## metres of oil pushed past the pattern each ball
+const WEAR_PER_BALL := 0.010           ## friction added to each cell a ball rolls through
+const WEAR_MAX := 0.08
+const CARRY_PER_BALL := 0.14           ## metres of oil pushed past the pattern each ball
 
 var length := BowlingSpec.OIL_LEN      ## where the oil ends (before carrydown)
 var mu_oil := BowlingSpec.MU_OIL
 var mu_dry := BowlingSpec.MU_DRY
 var crown := 0.0                       ## 0 = flat; 0.5 = outside boards half again drier
+var skew := 0.0                        ## one side of the lane drier than the other (-0.3..0.3)
 var carry := 0.0
 var jitter := 1.0                      ## per-throw lane-surface variation, set by the game
 var balls := 0
@@ -37,10 +38,11 @@ static func house() -> OilPattern:
 ## A fresh, slightly different shot for a new game.
 static func random(rng: RandomNumberGenerator) -> OilPattern:
 	var p := OilPattern.new()
-	p.length = rng.randf_range(10.8, 13.8)
-	p.mu_oil = rng.randf_range(0.030, 0.052)
-	p.mu_dry = rng.randf_range(0.16, 0.25)
-	p.crown = rng.randf_range(0.10, 0.55)
+	p.length = rng.randf_range(9.8, 14.6)
+	p.mu_oil = rng.randf_range(0.026, 0.060)
+	p.mu_dry = rng.randf_range(0.14, 0.29)
+	p.crown = rng.randf_range(0.05, 0.70)
+	p.skew = rng.randf_range(-0.30, 0.30)
 	return p
 
 
@@ -69,7 +71,7 @@ func _cell(p: Vector3) -> int:
 func mu(p: Vector3) -> float:
 	var dist := -p.z
 	var edge := absf(p.x) / BowlingSpec.LANE_HALF
-	var oil := mu_oil * (1.0 + crown * edge * edge * 2.0)
+	var oil := mu_oil * (1.0 + crown * edge * edge * 2.0) * (1.0 + skew * p.x / BowlingSpec.LANE_HALF)
 	var end := length + carry
 	var m := oil if dist < end else lerpf(oil, mu_dry, clampf(dist - end, 0.0, 1.0))
 	if dist < end + 1.0:

@@ -7,6 +7,7 @@ const EightBallRulesClass = preload("res://scripts/eight_ball_rules.gd")
 const BilliardsAIClass = preload("res://scripts/ai_opponent.gd")
 const CueControllerClass = preload("res://scripts/cue_controller.gd")
 const TrajectoryGuideClass = preload("res://scripts/trajectory_guide.gd")
+const ManorAudioClass = preload("res://scripts/manor_audio.gd")
 
 const TABLE_LENGTH := 8.8
 const TABLE_WIDTH := 4.4
@@ -25,6 +26,7 @@ var replay_buffer := ReplayBufferClass.new()
 var rules := EightBallRulesClass.new()
 var computer := BilliardsAIClass.new()
 var cue_controls := CueControllerClass.new()
+var soundscape: ManorAudio
 var aim_guide: AimGuide
 var tactical_guide: AimGuide
 var trajectory_guide: TrajectoryGuide
@@ -59,6 +61,15 @@ var replay_frames: Array[Dictionary] = []
 var replay_cursor := 0.0
 var replay_restore := {}
 var replay_auto := false
+var replay_return_state := GameState.AIMING
+var replay_focus_id := 0
+var replay_pocket_position := Vector3.ZERO
+var replay_camera_origin := Vector3.ZERO
+var replay_progress := 0.0
+
+var master_volume := 0.85
+var vibration_enabled := true
+var auto_replay_enabled := true
 
 var status_label: Label
 var player_label: Label
@@ -68,17 +79,17 @@ var tip_label: Label
 var menu_panel: PanelContainer
 var difficulty_picker: OptionButton
 var guide_checkbox: CheckButton
+var volume_slider: HSlider
+var vibration_checkbox: CheckButton
+var replay_checkbox: CheckButton
 var match_over_panel: PanelContainer
 var match_over_label: Label
 var spin_dot: ColorRect
 var spin_label: Label
 var called_pocket_label: Label
 var ai_tactic_label: Label
-var resin_stream: AudioStreamWAV
-var cushion_stream: AudioStreamWAV
-
-
 func _ready() -> void:
+	_load_settings()
 	_ensure_input_map()
 	_build_world()
 	_build_room()
@@ -88,10 +99,12 @@ func _ready() -> void:
 	_build_ui()
 	_build_audio()
 	_show_mode_menu()
-	get_viewport().get_window().title = "Spectral Manor Billiards — Controller & Guidance v0.5"
+	get_viewport().get_window().title = "Spectral Manor Billiards — Cinematic Shot Feel v0.6"
 
 
 func _physics_process(delta: float) -> void:
+	if soundscape != null:
+		soundscape.update_roll(balls, state == GameState.ROLLING)
 	if state == GameState.MENU or state == GameState.MATCH_OVER:
 		return
 	if state == GameState.REPLAY:
@@ -302,6 +315,7 @@ func _strike_direction(direction: Vector3, power: float) -> void:
 	var impulse := direction * lerpf(0.65, MAX_SHOT_IMPULSE, power)
 	cue_ball.apply_central_impulse(impulse)
 	cue_ball.apply_torque_impulse(cue_controls.torque_for_shot(direction, power))
+	_pulse_controller(0.16 + power * 0.2, 0.12 + power * 0.32, 0.08 + power * 0.08)
 	charge = 0.0
 	aim_guide.visible = false
 	trajectory_guide.hide_guide()
@@ -535,12 +549,17 @@ func _update_camera(delta: float) -> void:
 	camera.look_at(target + Vector3.UP * (0.05 if top_down else 0.2), Vector3.FORWARD if top_down else Vector3.UP)
 
 
-func _start_replay(frames: Array[Dictionary], automatic: bool) -> void:
+func _start_replay(frames: Array[Dictionary], automatic: bool, focus_id: int = 0, pocket_position: Vector3 = Vector3.ZERO) -> void:
 	if frames.size() < 2:
 		return
 	replay_frames = frames
 	replay_cursor = 0.0
+	replay_progress = 0.0
 	replay_auto = automatic
+	replay_return_state = state
+	replay_focus_id = focus_id
+	replay_pocket_position = pocket_position
+	replay_camera_origin = camera.global_position
 	replay_restore.clear()
 	for ball in balls:
 		replay_restore[ball.get_instance_id()] = {
@@ -557,6 +576,8 @@ func _start_replay(frames: Array[Dictionary], automatic: bool) -> void:
 	cue_visual.visible = false
 	replay_badge.visible = true
 	replay_badge.text = "SPECTRAL REPLAY  •  0.25×" if automatic else "LAST SHOT REPLAY"
+	if soundscape != null:
+		soundscape.begin_replay_mix()
 	_update_ui("A memory caught in the manor")
 
 
@@ -568,12 +589,22 @@ func _update_replay(delta: float) -> void:
 		_finish_replay()
 		return
 	_apply_replay_frame(replay_frames[frame_index])
-	var orbit := replay_cursor * 0.006
-	var focus := cue_ball.global_position if cue_ball != null else Vector3(0.0, BALL_Y, 0.0)
+	replay_progress = clampf(replay_cursor / maxf(float(replay_frames.size() - 1), 1.0), 0.0, 1.0)
+	var focus := _find_replay_focus(replay_frames[frame_index])
 	if replay_auto:
-		focus = _find_replay_focus(replay_frames[frame_index])
-	camera.global_position = focus + Vector3(cos(orbit) * 2.7, 1.45, sin(orbit) * 2.7)
-	camera.look_at(focus, Vector3.UP)
+		var pocket_side := replay_pocket_position.normalized()
+		if pocket_side.length_squared() < 0.01:
+			pocket_side = Vector3(0.7, 0.0, 0.7).normalized()
+		var cinematic_position := replay_pocket_position - pocket_side * 1.18 + Vector3.UP * 0.58
+		var blend := smoothstep(0.0, 0.28, replay_progress)
+		camera.global_position = replay_camera_origin.lerp(cinematic_position, blend)
+		camera.fov = lerpf(48.0, 34.0, blend)
+		camera.look_at(focus.lerp(replay_pocket_position - Vector3.UP * 0.08, replay_progress * 0.45), Vector3.UP)
+	else:
+		var orbit := replay_cursor * 0.006
+		camera.global_position = focus + Vector3(cos(orbit) * 3.25, 2.05, sin(orbit) * 3.25)
+		camera.fov = 44.0
+		camera.look_at(focus, Vector3.UP)
 
 
 func _apply_replay_frame(frame: Dictionary) -> void:
@@ -585,6 +616,8 @@ func _apply_replay_frame(frame: Dictionary) -> void:
 
 
 func _find_replay_focus(frame: Dictionary) -> Vector3:
+	if replay_focus_id > 0 and frame.has(replay_focus_id):
+		return frame[replay_focus_id]["transform"].origin
 	for ball in balls:
 		var id := ball.get_instance_id()
 		if frame.has(id) and ball.number in potted_numbers:
@@ -604,8 +637,13 @@ func _finish_replay() -> void:
 			ball.pocketed = saved["pocketed"]
 			ball.freeze = ball.pocketed
 	replay_badge.visible = false
-	state = GameState.ROLLING if replay_auto else GameState.AIMING
+	state = replay_return_state
+	camera.fov = 48.0
+	if soundscape != null:
+		soundscape.end_replay_mix()
 	replay_frames.clear()
+	replay_focus_id = 0
+	replay_progress = 0.0
 	_update_ui("The table returns to the present")
 
 
@@ -628,9 +666,10 @@ func _on_pocket_body_entered(body: Node, pocket_position: Vector3) -> void:
 		_update_ui("Ball %d claimed by the manor" % ball.number)
 	else:
 		_update_ui("Scratch — cue ball returns after the shot")
+	_pulse_controller(0.38, 0.72, 0.24)
 	var recent := replay_buffer.get_recent(1.5)
-	if recent.size() > 12:
-		_start_replay(recent, true)
+	if auto_replay_enabled and recent.size() > 12:
+		_start_replay(recent, true, ball.get_instance_id(), pocket_position)
 
 
 func _respawn_cue_ball() -> void:
@@ -1039,9 +1078,9 @@ func _build_ui() -> void:
 	canvas.add_child(replay_badge)
 
 	menu_panel = PanelContainer.new()
-	menu_panel.custom_minimum_size = Vector2(460.0, 452.0)
+	menu_panel.custom_minimum_size = Vector2(460.0, 570.0)
 	menu_panel.set_anchors_preset(Control.PRESET_CENTER)
-	menu_panel.position = Vector2(-230.0, -226.0)
+	menu_panel.position = Vector2(-230.0, -285.0)
 	canvas.add_child(menu_panel)
 	var menu_margin := MarginContainer.new()
 	menu_margin.add_theme_constant_override("margin_left", 34)
@@ -1093,6 +1132,27 @@ func _build_ui() -> void:
 	guide_checkbox.button_pressed = shot_guide_enabled
 	guide_checkbox.toggled.connect(_on_guide_toggled)
 	menu_layout.add_child(guide_checkbox)
+	var volume_label := Label.new()
+	volume_label.text = "Table audio"
+	volume_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	menu_layout.add_child(volume_label)
+	volume_slider = HSlider.new()
+	volume_slider.min_value = 0.0
+	volume_slider.max_value = 100.0
+	volume_slider.step = 5.0
+	volume_slider.value = master_volume * 100.0
+	volume_slider.value_changed.connect(_on_volume_changed)
+	menu_layout.add_child(volume_slider)
+	vibration_checkbox = CheckButton.new()
+	vibration_checkbox.text = "Controller vibration"
+	vibration_checkbox.button_pressed = vibration_enabled
+	vibration_checkbox.toggled.connect(_on_vibration_toggled)
+	menu_layout.add_child(vibration_checkbox)
+	replay_checkbox = CheckButton.new()
+	replay_checkbox.text = "Automatic pocket replays"
+	replay_checkbox.button_pressed = auto_replay_enabled
+	replay_checkbox.toggled.connect(_on_auto_replay_toggled)
+	menu_layout.add_child(replay_checkbox)
 	practice_button.call_deferred("grab_focus")
 
 	match_over_panel = PanelContainer.new()
@@ -1182,27 +1242,64 @@ func _on_guide_toggled(enabled: bool) -> void:
 	shot_guide_enabled = enabled
 	if not enabled and trajectory_guide != null:
 		trajectory_guide.hide_guide()
+	_save_settings()
+
+
+func _on_volume_changed(value: float) -> void:
+	master_volume = clampf(value / 100.0, 0.0, 1.0)
+	if soundscape != null:
+		soundscape.set_master_level(master_volume)
+	_save_settings()
+
+
+func _on_vibration_toggled(enabled: bool) -> void:
+	vibration_enabled = enabled
+	if not enabled:
+		for device in Input.get_connected_joypads():
+			Input.stop_joy_vibration(device)
+	_save_settings()
+
+
+func _on_auto_replay_toggled(enabled: bool) -> void:
+	auto_replay_enabled = enabled
+	_save_settings()
+
+
+func _load_settings() -> void:
+	var config := ConfigFile.new()
+	if config.load("user://billiards_settings.cfg") != OK:
+		return
+	master_volume = clampf(float(config.get_value("presentation", "volume", master_volume)), 0.0, 1.0)
+	vibration_enabled = bool(config.get_value("presentation", "vibration", vibration_enabled))
+	auto_replay_enabled = bool(config.get_value("presentation", "auto_replay", auto_replay_enabled))
+	shot_guide_enabled = bool(config.get_value("presentation", "shot_guide", shot_guide_enabled))
+
+
+func _save_settings() -> void:
+	var config := ConfigFile.new()
+	config.set_value("presentation", "volume", master_volume)
+	config.set_value("presentation", "vibration", vibration_enabled)
+	config.set_value("presentation", "auto_replay", auto_replay_enabled)
+	config.set_value("presentation", "shot_guide", shot_guide_enabled)
+	config.save("user://billiards_settings.cfg")
 
 
 func _build_audio() -> void:
-	resin_stream = _make_impact_stream(0.072, 1650.0, 0.34)
-	cushion_stream = _make_impact_stream(0.11, 230.0, 0.52)
+	soundscape = ManorAudioClass.new() as ManorAudio
+	add_child(soundscape)
+	soundscape.configure(master_volume)
 
 
 func _on_ball_impact(hit_position: Vector3, intensity: float, cushion: bool, ball_number: int) -> void:
 	if cushion and state == GameState.ROLLING:
 		rules.record_rail_contact(ball_number)
-	if DisplayServer.get_name() == "headless" or intensity < 0.08 or state == GameState.REPLAY:
+	if state == GameState.REPLAY:
 		return
-	var player := AudioStreamPlayer3D.new()
-	player.stream = cushion_stream if cushion else resin_stream
-	player.position = hit_position
-	player.volume_db = clampf(linear_to_db(clampf(intensity / 4.0, 0.015, 1.0)), -28.0, 0.0)
-	player.pitch_scale = clampf(0.84 + intensity * 0.08, 0.78, 1.28)
-	player.max_distance = 18.0
-	add_child(player)
-	player.finished.connect(player.queue_free)
-	player.play()
+	if soundscape != null:
+		soundscape.play_impact(hit_position, intensity, cushion)
+	if intensity >= 0.35:
+		var strength := clampf(intensity / 5.0, 0.05, 0.55)
+		_pulse_controller(strength * (0.72 if cushion else 0.55), strength, 0.055)
 
 
 func _on_cue_contacted_ball(number: int) -> void:
@@ -1210,23 +1307,13 @@ func _on_cue_contacted_ball(number: int) -> void:
 		rules.record_first_contact(number)
 
 
-func _make_impact_stream(duration: float, frequency: float, decay: float) -> AudioStreamWAV:
-	var rate := 22050
-	var sample_count := int(duration * rate)
-	var data := PackedByteArray()
-	data.resize(sample_count * 2)
-	for sample in sample_count:
-		var t := float(sample) / float(rate)
-		var envelope := exp(-t / maxf(0.01, duration * decay))
-		var overtone := sin(TAU * frequency * t) + sin(TAU * frequency * 1.91 * t) * 0.32
-		var value := int(clampf(overtone * envelope * 0.52, -1.0, 1.0) * 32767.0)
-		data.encode_s16(sample * 2, value)
-	var stream := AudioStreamWAV.new()
-	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.mix_rate = rate
-	stream.stereo = false
-	stream.data = data
-	return stream
+func _pulse_controller(weak: float, strong: float, duration: float) -> void:
+	if not vibration_enabled:
+		return
+	var joypads := Input.get_connected_joypads()
+	if joypads.is_empty():
+		return
+	Input.start_joy_vibration(joypads[0], clampf(weak, 0.0, 1.0), clampf(strong, 0.0, 1.0), duration)
 
 
 func _create_static_box(node_name: String, size: Vector3, position: Vector3, material: Material, layer: int) -> StaticBody3D:

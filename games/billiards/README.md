@@ -11,7 +11,12 @@ The current vertical slice is generated procedurally at runtime and includes:
 - gamepad-first camera, cue-ball placement, pull/push striking, tactical view, and replay controls;
 - mouse and keyboard fallback controls;
 - an eight-second transform ring buffer with manual and automatic slow-motion replays;
-- velocity-scaled procedural ball and cushion impact audio;
+- pocket-focused cinematic replay cameras with isolated, exact live-state restoration;
+- pooled, velocity-scaled resin and cushion impact audio;
+- continuous cloth-roll sound driven by the combined speed and position of moving balls;
+- gothic hall reverb plus a muffled replay mix and spectral bass rumble;
+- strike, collision, and pocket controller vibration;
+- saved table-volume, vibration, automatic-replay, and shot-guide settings;
 - a gothic lounge whitebox based on the supplied visual references;
 - Practice Alone, Versus Computer, and Local Two Player modes;
 - eight-ball group assignment, legal-target checking, fouls, scratches, turn continuation, and win/loss evaluation;
@@ -46,6 +51,8 @@ Godot_v4.7.2-stable_win64.exe --path <project-folder>
 
 ![Controller and trajectory guidance v0.5](docs/controller-guidance.png)
 
+![Cinematic pocket replay v0.6](docs/cinematic-replay.png)
+
 ### Smoke test
 
 ```text
@@ -55,6 +62,7 @@ Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --scrip
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/ball_control_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/menu_input_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/control_scheme_test.gd
+Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/cinematic_feedback_test.gd
 ```
 
 ## Controls
@@ -80,8 +88,8 @@ The supplied concept images are preserved under `docs/reference/`. They are visu
 
 1. Replace the procedural room and table with optimized Blender assets.
 2. Add multi-rail/combinations only after one-cushion bank accuracy is playtested.
-3. Tune spin decay, cushion transfer, table friction, and shot strength from playtesting.
-4. Record and layer production resin, rubber, roll, ambience, and reverb audio.
+3. Tune spin decay, cushion transfer, table friction, and shot strength from controller playtesting.
+4. Replace the procedural audio sources with recorded production resin, rubber, cloth, and ambience layers.
 5. Add accessibility settings, save data, export presets, and optional GIF highlights.
 
 See `THIRD_PARTY.md` for open-source evaluation and license boundaries.
