@@ -1,0 +1,9 @@
+{
+  "name": "spectral-manor-wave4",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"shared/**/*.test.mjs\"",
+    "serve": "npx --yes http-server -p 5174 -c-1 ."
+  }
+}

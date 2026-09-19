@@ -1,0 +1,8 @@
+# exported builds and clips are reproducible - see HANDOFF.md
+builds/
+# Godot's import cache (the .import files themselves ARE committed)
+.godot/
+# Blender autosave backups
+*.blend1
+__pycache__/
+node_modules/

@@ -1,0 +1,142 @@
+/* ManorNet chat drawer - Spectral Manor Wave 4 palette */
+.manor-chat {
+  --mc-ecto: #2bf7a3;
+  --mc-violet: #8a2be2;
+  --mc-brass: #b59449;
+  --mc-mahogany: #1a0f0d;
+  --mc-void: #0a0a0c;
+  --mc-ink: #e8e0d0;
+  --mc-dim: #a89f8f;
+  --mc-w: min(340px, calc(100vw - 16px));
+  position: fixed;
+  inset: 0 0 0 auto;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+  font: 14px/1.4 system-ui, sans-serif;
+  color: var(--mc-ink);
+  transform: translateX(var(--mc-w));
+  transition: transform 0.25s ease;
+}
+.manor-chat.is-open { transform: none; }
+.manor-chat * { box-sizing: border-box; }
+
+.mc-tab {
+  pointer-events: auto;
+  margin-top: 20vh;
+  padding: 10px 8px;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  background: var(--mc-mahogany);
+  color: var(--mc-brass);
+  border: 1px solid var(--mc-brass);
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+  font: 600 13px/1 system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.mc-badge {
+  display: inline-block;
+  margin-top: 6px;
+  min-width: 18px;
+  padding: 3px 4px;
+  border-radius: 9px;
+  background: var(--mc-ecto);
+  color: var(--mc-void);
+  writing-mode: horizontal-tb;
+  font-size: 11px;
+}
+.mc-badge[hidden] { display: none; }
+
+.mc-panel {
+  pointer-events: auto;
+  width: var(--mc-w);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--mc-void) 92%, var(--mc-violet));
+  border-left: 1px solid color-mix(in srgb, var(--mc-brass) 55%, transparent);
+  box-shadow: -12px 0 32px rgb(0 0 0 / 0.5);
+}
+.mc-head { display: flex; align-items: center; gap: 8px; }
+.mc-head > div { flex: 1; display: flex; flex-direction: column; }
+.mc-kicker { font-size: 11px; color: var(--mc-dim); text-transform: uppercase; letter-spacing: 0.1em; }
+.mc-room { font: 600 18px/1.1 ui-monospace, monospace; color: var(--mc-ecto); }
+.mc-close {
+  background: none; border: 0; color: var(--mc-dim);
+  font-size: 22px; line-height: 1; cursor: pointer; padding: 4px 6px;
+}
+.mc-btn {
+  background: var(--mc-mahogany);
+  color: var(--mc-brass);
+  border: 1px solid var(--mc-brass);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: 600 12px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.mc-btn:hover, .mc-tab:hover { background: color-mix(in srgb, var(--mc-mahogany) 80%, var(--mc-brass)); }
+.mc-btn:focus-visible, .mc-tab:focus-visible, .mc-input:focus-visible, .mc-alias:focus-visible,
+.mc-mute:focus-visible, .mc-close:focus-visible {
+  outline: 2px solid var(--mc-ecto);
+  outline-offset: 2px;
+}
+.mc-status { margin: 0; font-size: 12px; color: var(--mc-dim); }
+
+.mc-peers { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.mc-peer {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.06);
+  font-size: 12px;
+}
+.mc-peer span { color: hsl(var(--hue, 42) 70% 70%); }
+.mc-peer.is-self { padding-right: 10px; }
+.mc-peer.is-muted span { text-decoration: line-through; opacity: 0.6; }
+.mc-mute {
+  background: none; border: 1px solid rgb(255 255 255 / 0.2); border-radius: 8px;
+  color: var(--mc-dim); font-size: 11px; padding: 1px 6px; cursor: pointer;
+}
+
+.mc-log {
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mc-line { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; align-items: baseline; }
+.mc-who { font-weight: 600; color: hsl(var(--hue, 158) 75% 68%); }
+.mc-text { overflow-wrap: anywhere; }
+.mc-line time { font-size: 11px; color: var(--mc-dim); }
+.mc-note { font-size: 12px; font-style: italic; color: var(--mc-dim); }
+
+.mc-alias-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mc-dim); }
+.mc-alias, .mc-input {
+  flex: 1;
+  min-width: 0;
+  background: rgb(0 0 0 / 0.4);
+  color: var(--mc-ink);
+  border: 1px solid rgb(255 255 255 / 0.15);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+}
+.mc-form { display: flex; gap: 8px; }
+.mc-send { background: var(--mc-ecto); color: var(--mc-void); border-color: var(--mc-ecto); }
+.mc-send:hover { background: color-mix(in srgb, var(--mc-ecto) 80%, white); }
+
+@media (prefers-reduced-motion: reduce) {
+  .manor-chat { transition: none; }
+}

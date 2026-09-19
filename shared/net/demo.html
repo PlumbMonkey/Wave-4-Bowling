@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ManorNet Test Room</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; min-height: 100vh; padding: 24px 16px;
+      background: radial-gradient(circle at 30% 20%, #1c1030, #0a0a0c 60%);
+      color: #e8e0d0; font: 15px/1.5 system-ui, sans-serif;
+    }
+    main { max-width: 640px; }
+    h1 { margin: 0 0 4px; font: 600 24px/1.2 Georgia, serif; color: #b59449; }
+    p { color: #a89f8f; }
+    code { color: #2bf7a3; }
+    button {
+      background: #1a0f0d; color: #b59449; border: 1px solid #b59449; border-radius: 6px;
+      padding: 8px 14px; font: 600 13px system-ui, sans-serif; cursor: pointer;
+    }
+    #log { list-style: none; padding: 0; font: 13px/1.6 ui-monospace, monospace; color: #cfc6b6; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 16px 0; }
+    #who { color: #2bf7a3; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>ManorNet test room</h1>
+    <p>Open the invite link (chat drawer → <em>Copy invite</em>) in a second browser or
+      window. Both sides should list each other, chat, and see each other's
+      <code>gameAction</code> pings. Add <code>&amp;strategy=torrent</code> to try the
+      BitTorrent trackers instead of Nostr.</p>
+    <div class="row">
+      <span>Room <strong id="room">…</strong></span>
+      <span id="who"></span>
+      <button id="throw" type="button" disabled>Send a test throw</button>
+    </div>
+    <ol id="log"></ol>
+  </main>
+  <script type="module">
+    import { joinManor } from './manor-net.js';
+    import { mountChatDrawer } from './chat-drawer.js';
+
+    const log = (t) => {
+      const li = document.createElement('li');
+      li.textContent = `${new Date().toLocaleTimeString()}  ${t}`;
+      document.getElementById('log').prepend(li);
+    };
+    const params = new URLSearchParams(location.search);
+    const net = await joinManor({
+      game: params.get('game') || 'bowling',
+      alias: 'Luno-' + Math.floor(Math.random() * 90 + 10),
+      strategy: params.get('strategy') || 'nostr',
+    });
+    // put the room in the address bar so a refresh rejoins the same room
+    history.replaceState(null, '', net.inviteLink());
+    window.manorNet = net;
+
+    document.getElementById('room').textContent = net.room;
+    const who = document.getElementById('who');
+    const refresh = () => {
+      who.textContent = `${net.peers().length + 1} here · ${net.isHost() ? 'you are host' : 'guest'}`;
+      document.getElementById('throw').disabled = net.peers().length === 0;
+    };
+    net.onPeers(refresh);
+    refresh();
+
+    let n = 0;
+    document.getElementById('throw').addEventListener('click', () => {
+      const a = { type: 'throw', n: ++n, x: +(Math.random() * 2 - 1).toFixed(2),
+                  power: +Math.random().toFixed(2), spin: +(Math.random() - 0.5).toFixed(2) };
+      net.sendAction(a);
+      log(`sent ${JSON.stringify(a)}`);
+    });
+    net.onAction((a, p) => log(`got ${JSON.stringify(a)} from ${p.alias}`));
+    net.onPeerJoin((p) => log(`peer ${p.id.slice(0, 6)} joined`));
+    net.onPeerLeave((p) => log(`${p.alias} left`));
+    net.onError((e) => log(`error: ${e?.error ?? JSON.stringify(e)}`));
+
+    mountChatDrawer(net, { open: true });
+    log(`joined ${net.game}:${net.room} as ${net.alias} (${net.selfId.slice(0, 6)}) via ${net.strategy}`);
+  </script>
+</body>
+</html>
