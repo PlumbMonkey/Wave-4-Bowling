@@ -20,7 +20,8 @@ once, or Godot won't find the class.
 
 | | Xbox | keyboard / mouse |
 |---|---|---|
-| move on the approach | D-pad left/right | A / D |
+| place the ball on the approach (eases smoothly, faster the further you push) | left stick left/right, or D-pad | A / D |
+| menus: select / back | A / B | Enter / Esc |
 | aim | right stick | J / L, or move the mouse sideways |
 | **draw back (sets the speed)** | pull the **left** stick toward you | move the mouse toward you, or hold S (W eases off) |
 | **release** | squeeze **RT** (a firm squeeze - a resting finger won't let go) | left click, or Space |

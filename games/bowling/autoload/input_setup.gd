@@ -27,7 +27,10 @@ func _enter_tree() -> void:
 	_action("next_ball", [_button(JOY_BUTTON_Y), _key(KEY_B)])
 	_action("restart", [_key(KEY_R)])
 	_action("pause", [_button(JOY_BUTTON_START), _key(KEY_ESCAPE)])
-	# menus: the left stick navigates too (the D-pad and arrows already do)
+	# menus: A selects and B goes back on the pad (Godot's defaults are keyboard
+	# only), and the left stick navigates too (the D-pad and arrows already do)
+	InputMap.action_add_event("ui_accept", _button(JOY_BUTTON_A))
+	InputMap.action_add_event("ui_cancel", _button(JOY_BUTTON_B))
 	for a in [["ui_up", JOY_AXIS_LEFT_Y, -1.0], ["ui_down", JOY_AXIS_LEFT_Y, 1.0],
 			["ui_left", JOY_AXIS_LEFT_X, -1.0], ["ui_right", JOY_AXIS_LEFT_X, 1.0]]:
 		InputMap.action_add_event(a[0], _axis(a[1], a[2]))

@@ -180,7 +180,31 @@ func _run() -> void:
 	check(game.menus.current() == "over" and game.menus._over_score.text == "167"
 		and game.menus._over_stats.text.contains("STRIKES  5") and game.menus._over_best.text == "NEW BEST GAME!",
 		"game over shows the score, strikes and a new best")
+	var pad_a := false
+	for e in InputMap.action_get_events("ui_accept"):
+		pad_a = pad_a or (e is InputEventJoypadButton and e.button_index == JOY_BUTTON_A)
+	check(pad_a, "the pad's A button presses menu buttons")
+	check(game.menus._first["over"] is Button and game.menus._screens["over"].find_children("*", "Button", true, false).size() >= 5,
+		"game over offers bowl again, alley, pins, ball and title")
 	game.menus.close()
+	game.state = game.State.GAME_OVER
+	check(not game.can_pause(), "Start can't bury the game-over screen under the pause menu")
+
+	# placing the ball: it eases up to speed and eases to a stop
+	game.state = game.State.AIM
+	game.stance_x = 0.0
+	game._stance_v = 0.0
+	Input.action_press("move_right")
+	game._update_stance(1.0 / 120.0)
+	var first_step: float = game._stance_v
+	for i in 60:
+		game._update_stance(1.0 / 120.0)
+	var cruising: float = game._stance_v
+	Input.action_release("move_right")
+	for i in 60:
+		game._update_stance(1.0 / 120.0)
+	check(first_step > 0.0 and first_step < cruising * 0.2 and cruising > 0.8 and absf(game._stance_v) < 0.01
+		and game.stance_x > 0.2, "the ball eases across the approach and eases to a stop (%.2f m)" % game.stance_x)
 	game.show_title()
 	check(game.state == game.State.TITLE and not game.ball.visible, "quit to title hides the ball and opens the title")
 	game.menus.close()

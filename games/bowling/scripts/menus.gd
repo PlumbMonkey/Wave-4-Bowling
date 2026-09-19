@@ -172,7 +172,7 @@ func _build_settings() -> void:
 
 func _build_over() -> void:
 	var s := _screen("over", Color(0.01, 0.0, 0.03, 0.66))
-	var col := _column(s, Vector2(700, 250))
+	var col := _column(s, Vector2(680, 110))
 	col.add_child(_label("FINAL SCORE", 34, BRASS))
 	_over_score = _label("0", 160, ECTO)
 	_over_score.add_theme_color_override("font_outline_color", Color(0.18, 0.02, 0.32))
@@ -184,6 +184,12 @@ func _build_over() -> void:
 	col.add_child(_over_stats)
 	col.add_child(_gap(30))
 	_first["over"] = _button(col, "BOWL AGAIN", func(): close(); game.restart_game())
+	# try something different for the next game without going back to the title
+	_option(col, "ALLEY", func(): return AlleyTheme.display_name_of(game.alley_id),
+		func(d: int): game.cycle_alley(d))
+	_option(col, "PINS", func(): return String(BowlingPin.STYLES[game.pin_style].name),
+		func(d: int): game.cycle_pins(d))
+	_option(col, "BALL", func(): return game.ball_name(), func(d: int): game.cycle_ball(d))
 	_button(col, "TITLE", func(): close(); game.show_title())
 
 

@@ -26,7 +26,7 @@ const RESULT_HOLD := 2.6         ## how long the replay offer stays up
 const MIN_DRAW := 0.06           ## pull back at least this far before releasing
 const MOUSE_DRAW_PX := 380.0     ## mouse travel for a full draw
 const HINT_AIM := "Aim R-stick / J L / mouse   Pull back L-stick / S / mouse → release RT / click / Space   " + \
-	"Move D-pad / A D   Spin LB RB / Q E   Ball Y / B   Pins D-pad up / P   Alley D-pad down / V   Pause Start / Esc"
+	"Place L-stick / D-pad / A D   Spin LB RB / Q E   Ball Y / B   Pins D-pad up / P   Alley D-pad down / V   Pause Start / Esc"
 
 var alley: Alley
 var setter: Pinsetter
@@ -40,6 +40,7 @@ var menus: BowlingMenus
 var guide_enabled := true
 var quality := "auto"              ## "auto" | "desktop" | "web" (settings menu)
 var _input_block := 0.0            ## seconds to ignore buttons after a menu closes
+var _stance_v := 0.0               ## how fast the ball is sliding across the approach
 var env: Environment
 var replay := ThrowReplay.new()
 var alley_id := "lounge"
@@ -287,8 +288,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _update_aim(delta: float) -> void:
-	stance_x = clampf(stance_x + Input.get_axis("move_left", "move_right") * 0.9 * delta,
-		-BowlingSpec.X_MAX, BowlingSpec.X_MAX)
+	_update_stance(delta)
 	aim = clampf(aim + Input.get_axis("aim_left", "aim_right") * deg_to_rad(2.5) * delta,
 		-BowlingSpec.AIM_MAX, BowlingSpec.AIM_MAX)
 	if _pressed("spin_left"):
@@ -315,6 +315,31 @@ func _update_aim(delta: float) -> void:
 		_guide_key = key
 		guide.show_throw(stance_x, aim, speed_for(shown), release_spin, draw)
 	hud.set_speed(draw, speed_for(draw))
+
+
+## Placing the ball on the approach: the left stick slides it across, faster the
+## further you push, and it eases in and out so it follows the stick smoothly.
+## Sideways stick is ignored while you're pulling back (the same stick). The
+## D-pad / A D do the same at a steady speed.
+const STANCE_SPEED := 1.3          ## m/s at full stick
+const STANCE_EASE := 10.0          ## how quickly the ball catches up with the stick
+
+
+func _update_stance(delta: float) -> void:
+	var push := Input.get_axis("move_left", "move_right") * 0.7
+	if draw < 0.08:
+		for pad in Input.get_connected_joypads():
+			var sx := Input.get_joy_axis(pad, JOY_AXIS_LEFT_X)
+			var mag := clampf((absf(sx) - 0.18) / 0.82, 0.0, 1.0)
+			if mag > absf(push):
+				push = signf(sx) * mag * mag * (3.0 - 2.0 * mag)     # gentle near the centre
+	_stance_v = lerpf(_stance_v, push * STANCE_SPEED, 1.0 - exp(-STANCE_EASE * delta))
+	if absf(_stance_v) < 0.002 and push == 0.0:
+		_stance_v = 0.0
+	var x := stance_x + _stance_v * delta
+	if absf(x) > BowlingSpec.X_MAX:
+		_stance_v = 0.0
+	stance_x = clampf(x, -BowlingSpec.X_MAX, BowlingSpec.X_MAX)
 
 
 func _try_release() -> void:
@@ -412,7 +437,7 @@ func _advance() -> void:
 			var best := int(BowlingSettings.load_all().best)
 			if card.total() > best:
 				BowlingSettings.save_value("best", card.total())
-			await get_tree().create_timer(1.6).timeout
+			await get_tree().create_timer(1.6, false).timeout     # waits while paused
 			if state == State.GAME_OVER and not menus.is_open():
 				menus.show_over(card, best)
 			return
@@ -545,7 +570,7 @@ func restart_game() -> void:
 
 
 func can_pause() -> bool:
-	return state != State.TITLE and not autoplay
+	return state != State.TITLE and state != State.GAME_OVER and not autoplay
 
 
 func cycle_alley(dir: int, announce := false) -> void:
