@@ -11,6 +11,7 @@ static func load_all() -> Dictionary:
 	return {
 		"ball": cfg.get_value("play", "ball", 0),
 		"pins": cfg.get_value("play", "pins", "classic"),
+		"alley": cfg.get_value("play", "alley", "lounge"),
 		"muted": cfg.get_value("play", "muted", false),
 	}
 

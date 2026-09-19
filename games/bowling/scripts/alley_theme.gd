@@ -8,7 +8,47 @@ extends Node3D
 
 const ALLEYS := {
 	"lounge": {"name": "The Spectral Lounge", "glb": "res://art/alleys/lounge.glb"},
+	"void": {
+		"name": "The Void", "glb": "res://art/alleys/void.glb",
+		# cool starlight: the open sky at the end of the hall lights the pins
+		"lights": {
+			"Chandelier": ["omni", Color(1.0, 0.68, 0.40), 2.2, 9.0, true, 0.5],
+			"Mask": ["omni", Color(0.45, 0.55, 1.0), 1.2, 2.8, false, 0.4],
+			"Pit": ["omni", Color(0.35, 0.45, 1.0), 1.0, 1.6, false, 0.0],
+			"PinSpot": ["spot", Color(0.80, 0.86, 1.0), 4.0, 5.0, false, 1.0],
+			"Window": ["omni", Color(0.35, 0.42, 1.0), 2.2, 7.0, false, 0.8],
+			"Nebula": ["omni", Color(0.52, 0.44, 1.0), 3.5, 16.0, false, 1.2],
+			"Moon": ["omni", Color(1.0, 0.75, 0.40), 1.0, 2.6, false, 0.3],
+			"Orb": ["omni", Color(0.35, 0.50, 1.0), 1.2, 2.2, false, 0.0],
+		},
+		"env": {"background": Color(0.004, 0.005, 0.02), "ambient": Color(0.30, 0.34, 0.62),
+			"ambient_energy": 0.24, "fog": Color(0.55, 0.60, 0.95), "fog_density": 0.008},
+		"sky": ["BWL_Nebula"],
+	},
+	"crypt": {
+		"name": "The Crypt", "glb": "res://art/alleys/crypt.glb",
+		# blacklight: violet washes, cyan neon, orange torches, dim candles
+		"lights": {
+			"Chandelier": ["omni", Color(1.0, 0.62, 0.36), 1.5, 8.0, true, 0.4],
+			"Mask": ["omni", Color(0.62, 0.30, 1.0), 1.8, 3.0, false, 0.5],
+			"Pit": ["omni", Color(0.45, 0.30, 1.0), 1.2, 1.6, false, 0.0],
+			"PinSpot": ["spot", Color(0.55, 0.68, 1.0), 4.5, 5.0, false, 1.2],
+			"Window": ["omni", Color(0.45, 0.22, 1.0), 2.8, 7.5, false, 1.0],
+			"Torch": ["omni", Color(1.0, 0.48, 0.18), 1.4, 4.0, false, 0.5],
+			"Neon": ["omni", Color(0.10, 0.80, 1.0), 0.8, 3.0, false, 0.2],
+			"Bride": ["omni", Color(0.20, 0.90, 1.0), 1.6, 4.5, false, 0.6],
+			"Orb": ["omni", Color(0.6, 0.25, 1.0), 1.2, 2.2, false, 0.0],
+		},
+		"env": {"background": Color(0.008, 0.004, 0.02), "ambient": Color(0.36, 0.22, 0.62),
+			"ambient_energy": 0.24, "fog": Color(0.60, 0.42, 0.95), "fog_density": 0.016},
+	},
 }
+## the order D-pad down / V cycles through
+const ALLEY_ORDER := ["lounge", "void", "crypt"]
+## lights that flicker like flame
+const FLAMES := ["Candle", "Lantern", "Torch"]
+## lights with no highlight of their own (they'd show as blobs in the polished lane)
+const NO_SPECULAR := ["Neon"]
 
 ## prefix -> [type, colour, energy, range, shadow, volumetric]
 const LIGHTS := {
@@ -49,6 +89,7 @@ static func create(parent: Node, alley_id: String, env: Environment,
 	t.add_child(art)
 	t._spawn_lights(art)
 	t._environment(env)
+	t._unshade_sky(art)
 	return t
 
 
@@ -92,13 +133,43 @@ func display_name() -> String:
 	return ALLEYS[id].name
 
 
+static func display_name_of(alley_id: String) -> String:
+	return ALLEYS[alley_id].name if ALLEYS.has(alley_id) else alley_id
+
+
+## The light config for a marker kind in this alley: its own, else the Lounge's.
+func light_config(kind: String) -> Array:
+	var own: Dictionary = ALLEYS[id].get("lights", {})
+	return own.get(kind, LIGHTS.get(kind, []))
+
+
+## Distant scenery (the Void's sky) glows by itself, ignoring lights and fog.
+func _unshade_sky(art: Node) -> void:
+	for n in ALLEYS[id].get("sky", []):
+		var mi := art.find_child(n, true, false) as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		for i in mi.mesh.get_surface_count():
+			var m := mi.mesh.surface_get_material(i) as StandardMaterial3D
+			if m == null:
+				continue
+			m = m.duplicate()
+			m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			m.albedo_texture = m.emission_texture if m.emission_texture else m.albedo_texture
+			m.albedo_color = Color(1.35, 1.35, 1.35)
+			m.disable_fog = true
+			m.disable_receive_shadows = true
+			mi.set_surface_override_material(i, m)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
 func _spawn_lights(art: Node) -> void:
 	var markers: Array[Node] = art.find_children("LGT_*", "", true, false)
 	for m in markers:
 		var kind := String(m.name).split("_")[1]
-		if not LIGHTS.has(kind) or not GraphicsProfile.wants_light(profile, kind):
+		var cfg := light_config(kind)
+		if cfg.is_empty() or not GraphicsProfile.wants_light(profile, kind):
 			continue
-		var cfg: Array = LIGHTS[kind]
 		var light: Light3D
 		if cfg[0] == "spot":
 			var s := SpotLight3D.new()
@@ -116,7 +187,7 @@ func _spawn_lights(art: Node) -> void:
 		light.light_energy = cfg[2]
 		light.shadow_enabled = cfg[4]
 		light.light_volumetric_fog_energy = cfg[5]
-		light.light_specular = 0.35 if kind == "Candle" else 0.8
+		light.light_specular = 0.0 if NO_SPECULAR.has(kind) else (0.35 if FLAMES.has(kind) else 0.8)
 		add_child(light)
 		light.global_position = (m as Node3D).global_position
 		if kind == "PinSpot":
@@ -128,16 +199,17 @@ func _spawn_lights(art: Node) -> void:
 				light.shadow_enabled = true
 		light.shadow_enabled = GraphicsProfile.wants_shadow(profile, kind,
 			kind == "PinSpot" and absf(light.global_position.x) < 0.1, light.shadow_enabled)
-		if kind == "Candle" or kind == "Lantern":
+		if FLAMES.has(kind):
 			_flicker.append([light, light.light_energy, randf() * 100.0])
 
 
 func _environment(env: Environment) -> void:
+	var e: Dictionary = ALLEYS[id].get("env", {})
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.01, 0.006, 0.02)
+	env.background_color = e.get("background", Color(0.01, 0.006, 0.02))
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.38, 0.30, 0.52)
-	env.ambient_light_energy = 0.22
+	env.ambient_light_color = e.get("ambient", Color(0.38, 0.30, 0.52))
+	env.ambient_light_energy = e.get("ambient_energy", 0.22)
 	env.tonemap_mode = Environment.TONE_MAPPER_AGX
 	env.tonemap_exposure = 1.1
 	env.glow_enabled = true
@@ -152,8 +224,8 @@ func _environment(env: Environment) -> void:
 	env.ssao_enabled = true
 	env.ssil_enabled = true
 	env.volumetric_fog_enabled = true
-	env.volumetric_fog_density = 0.010
-	env.volumetric_fog_albedo = Color(0.72, 0.62, 0.92)
+	env.volumetric_fog_density = e.get("fog_density", 0.010)
+	env.volumetric_fog_albedo = e.get("fog", Color(0.72, 0.62, 0.92))
 	env.volumetric_fog_anisotropy = 0.45
 	env.volumetric_fog_length = 40.0
 

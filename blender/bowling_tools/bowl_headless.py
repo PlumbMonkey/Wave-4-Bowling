@@ -2,7 +2,7 @@
 straight into the Godot project, and render previews.
 
     blender -b --factory-startup --python bowl_headless.py -- [--bake] [--balls] [--alley]
-            [--render aim,hall,pins] [--pct 50] [--samples 48]
+            [--void] [--crypt] [--bake2] [--render aim,hall,pins] [--pct 50] [--samples 48]
 
 Outputs:
     blender/Phantom Bowling - Balls.blend          -> games/bowling/art/balls/<id>.glb
@@ -244,4 +244,52 @@ if opt("--alley"):
         if cname == "balls":
             continue
         render("BWLCAM_" + cname.capitalize(), os.path.join(renders, "bowl_lounge_%s.png" % cname),
+               pct, samples)
+
+# ---------------------------------------------------------- void + crypt ---
+TEX2 = {"nebula": "BWL_Nebula", "void_mask": "BWL_VoidMask", "void_glass": "BWL_VoidGlass",
+        "void_banner": "BWL_VoidBanner", "star_ceiling": "BWL_StarCeiling", "compass": "BWL_Compass",
+        "crypt_lane": ("BWL_CryptLane", "BWL_CryptLaneEmit"),
+        "crypt_approach": ("BWL_CryptApproach", "BWL_CryptApproachEmit"),
+        "neon_mask": "BWL_NeonMask", "bride": "BWL_BridePanel", "mural_a": "BWL_MuralA",
+        "mural_b": "BWL_MuralB", "sigils": "BWL_Sigils", "star_map": "BWL_StarMap"}
+
+
+def textures2(which, bake):
+    import bowl_textures2 as T2
+    if bake:
+        return T2.build_void() if which == "void" else T2.build_crypt()
+    out = {}
+    for k, v in TEX2.items():
+        try:
+            out[k] = tuple(C.load_png(n) for n in v) if isinstance(v, tuple) else C.load_png(v)
+        except RuntimeError:
+            pass
+    return out
+
+
+for alley_id, flag, title in (("void", "--void", "The Void"), ("crypt", "--crypt", "The Crypt")):
+    if not opt(flag):
+        continue
+    wipe_scene()
+    mod = importlib.import_module("bowl_" + alley_id)
+    tex = textures(False)
+    tex.update(textures2(alley_id, bool(opt("--bake2", False))))
+    t0 = time.time()
+    root = mod.build(tex)
+    bpy.context.view_layer.update()
+    print("BOWL %s built: %d tris, %d objects, %.1fs" % (alley_id, C.tri_count(),
+          len(bpy.context.scene.objects), time.time() - t0))
+    art = "BWL_%sArt" % alley_id.capitalize()
+    objs = list(bpy.data.collections[art].all_objects) + \
+        list(bpy.data.collections["BWL_%sMarkers" % alley_id.capitalize()].all_objects)
+    objs = [o for o in objs if o.type != 'MESH' or len(o.data.polygons)]
+    size = export(objs, os.path.join(C.GODOT_ART, "alleys", alley_id + ".glb"))
+    print("BOWL exported", alley_id, size)
+    preview_setup()
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(C.ROOT, "Phantom Bowling - %s.blend" % title))
+    for cname in cams:
+        if cname == "balls":
+            continue
+        render("BWLCAM_" + cname.capitalize(), os.path.join(renders, "bowl_%s_%s.png" % (alley_id, cname)),
                pct, samples)

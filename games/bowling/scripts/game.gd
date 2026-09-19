@@ -11,6 +11,7 @@ extends Node3D
 ##
 ## Command-line (after `--`):  --autoplay   bowl a whole game by itself
 ##                             --shots=DIR  save screenshots, quit at game end
+##                             --alley=ID   lounge | void | crypt
 
 signal throw_made(params: Dictionary)
 signal roll_scored(pins: int, card: ScoreCard)
@@ -25,7 +26,7 @@ const RESULT_HOLD := 2.6         ## how long the replay offer stays up
 const MIN_DRAW := 0.06           ## pull back at least this far before releasing
 const MOUSE_DRAW_PX := 380.0     ## mouse travel for a full draw
 const HINT_AIM := "Aim R-stick / J L / mouse   Pull back L-stick / S / mouse → release RT / click / Space   " + \
-	"Move D-pad / A D   Spin LB RB / Q E   Ball Y / B   Pins D-pad up / P   Mute View / M"
+	"Move D-pad / A D   Spin LB RB / Q E   Ball Y / B   Pins D-pad up / P   Alley D-pad down / V   Mute View / M"
 
 var alley: Alley
 var setter: Pinsetter
@@ -87,9 +88,14 @@ func _ready() -> void:
 	var saved := BowlingSettings.load_all()
 	ball_index = clampi(int(saved.ball), 0, 2)
 	pin_style = String(saved.pins)
+	alley_id = String(saved.alley)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--pins="):
 			pin_style = a.trim_prefix("--pins=")
+		elif a.begins_with("--alley="):
+			alley_id = a.trim_prefix("--alley=")
+	if not AlleyTheme.exists(alley_id):
+		alley_id = "lounge"
 
 	_build_environment()
 	alley = Alley.new()
@@ -204,6 +210,10 @@ func _physics_process(delta: float) -> void:
 				_apply_ball()
 				audio.play("select", null, -10.0)
 				BowlingSettings.save_value("ball", ball_index)
+			elif Input.is_action_just_pressed("alley"):
+				var ids: Array = AlleyTheme.ALLEY_ORDER
+				set_alley(ids[(ids.find(alley_id) + 1) % ids.size()], true)
+				BowlingSettings.save_value("alley", alley_id)
 			elif Input.is_action_just_pressed("pin_style"):
 				var order: Array = BowlingPin.STYLE_ORDER
 				pin_style = order[(order.find(pin_style) + 1) % order.size()]
@@ -469,6 +479,24 @@ func _update_camera(delta: float) -> void:
 	cam.global_position = cam.global_position.lerp(pos, k)
 	_cam_look = _cam_look.lerp(look, k)
 	cam.look_at(_cam_look)
+
+
+## Move to another alley. Only the scenery, lights and environment change -
+## the lane, pins, ball and colliders are the same regulation ones everywhere.
+func set_alley(new_id: String, announce := false) -> void:
+	if not AlleyTheme.exists(new_id):
+		return
+	alley_id = new_id
+	if theme:
+		remove_child(theme)
+		theme.queue_free()
+	theme = AlleyTheme.create(self, alley_id, env, profile)
+	GraphicsProfile.apply(profile, env, get_viewport())
+	theme.set_pin_style(pin_style)
+	if announce:
+		audio.play("select", null, -10.0, 0.7)
+		hud.flash(theme.display_name().to_upper(), BowlingHud.INK, 0.8)
+	_apply_ball()
 
 
 func _apply_pins(announce: bool) -> void:

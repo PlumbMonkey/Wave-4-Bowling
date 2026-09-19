@@ -14,7 +14,7 @@ extends RefCounted
 enum { DESKTOP, WEB }
 
 ## light kinds that only exist on desktop
-const DESKTOP_ONLY_LIGHTS := ["Candle", "Lantern", "Pit", "Orb"]
+const DESKTOP_ONLY_LIGHTS := ["Candle", "Lantern", "Pit", "Orb", "Neon", "Moon", "Torch"]
 
 
 static func detect() -> int:

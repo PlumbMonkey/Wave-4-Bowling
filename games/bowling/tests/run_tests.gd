@@ -142,6 +142,21 @@ func _run() -> void:
 		designs[(pn as BowlingPin)._mi.mesh] = true
 	check(designs.size() == 4, "the Reliquary rack shows its four designs (%d)" % designs.size())
 	BowlingPin.set_style("classic", game.setter.pins)
+
+	print("== alleys")
+	var own_light := {"lounge": "L_LGT_Chandelier_0", "void": "L_LGT_Nebula_0", "crypt": "L_LGT_Torch_0"}
+	for id in AlleyTheme.ALLEY_ORDER:
+		game.set_alley(id)
+		await process_frame
+		var t: AlleyTheme = game.theme
+		var lights := t.find_children("L_LGT_*", "Light3D", false, false)
+		check(t != null and t.id == id and t.get_node_or_null("Art") != null,
+			"%s loads its art" % AlleyTheme.display_name_of(id))
+		check(lights.size() > 10 and t.get_node_or_null(own_light[id]) != null,
+			"%s lights itself (%d lights, incl. %s)" % [id, lights.size(), own_light[id]])
+		check(game.get_children().filter(func(n): return n is AlleyTheme and not n.is_queued_for_deletion()).size() == 1,
+			"%s replaces the last alley rather than stacking" % id)
+	game.set_alley("lounge")
 	game.queue_free()
 
 	print("\n%s (%d failure%s)" % ["PASS" if failures == 0 else "FAILED", failures, "" if failures == 1 else "s"])

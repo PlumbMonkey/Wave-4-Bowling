@@ -32,6 +32,7 @@ once, or Godot won't find the class.
 | restart / play again | Start / A | R / Enter |
 | mute | View (Back) | M |
 | pin set: Classic → Bone → Reliquary (while aiming) | D-pad up | P |
+| alley: Spectral Lounge → The Void → The Crypt (while aiming) | D-pad down | V |
 
 Click once in the window to capture the mouse; Esc frees it.
 
@@ -63,15 +64,23 @@ Built by script in Blender (`../../blender/bowling_tools/`), exported straight i
 | asset | source | notes |
 |---|---|---|
 | `art/alleys/lounge.glb` | `Phantom Bowling - Spectral Lounge.blend` | 5 lanes, 122k tris, 12 MB. Lane 0 lines up with the grey-box colliders exactly |
+| `art/alleys/void.glb` | `Phantom Bowling - The Void.blend` | 140k tris, 14 MB. The back wall is one great arch onto a nebula (unshaded in Godot); the masking is an open gothic screen with spires and a gold crescent; telescopes, armillaries, compass-star floor |
+| `art/alleys/crypt.glb` | `Phantom Bowling - The Crypt.blend` | 115k tris, 13 MB. Black stone lanes with UV-glow markings, cyan neon gutters, blacklight murals, sigil banners, torches, lasers, the ghost bride between two gargoyles over the masking |
 | `art/balls/{spectre,p,skull}.glb` | `Phantom Bowling - Balls.blend` | regulation size; The Spectre = hooded reaper in lava, The P = silver monogram on violet marble, The Skull = smoky resin with a skull inside |
 
-Rebuild: `blender -b --factory-startup --python blender/bowling_tools/bowl_headless.py -- --balls --alley [--bake] [--render aim,hall,pins,balls]`,
+Rebuild: `blender -b --factory-startup --python blender/bowling_tools/bowl_headless.py -- --balls --alley --void --crypt [--bake] [--bake2] [--render aim,hall,pins,balls]`
+(`--bake` re-bakes the Lounge/ball textures, `--bake2` the Void/Crypt ones in `bowl_textures2.py`),
 then `godot --headless --path . --import`.
 
 `scripts/alley_theme.gd` loads the alley GLB, hides the grey-box meshes (colliders stay), turns the `LGT_*`
 marker nodes into lights (chandeliers, flickering candles, the violet masking glow, a pin spot per lane,
 the windows) and sets the Desktop profile: SSR, SSAO, SSIL, glow, volumetric fog. If the GLB is missing,
 the game falls back to the grey box.
+
+Each alley in `AlleyTheme.ALLEYS` can override the light colours per marker kind and the environment
+(the Void is cool starlight, the Crypt violet blacklight + orange torches). D-pad down / V switches alley
+while aiming (`game.set_alley`); only scenery, lights and environment change - the lane, pins, ball and
+colliders are the same everywhere. The choice is saved; `-- --alley=void|crypt|lounge` forces one.
 
 ## The oil (why the same line stops working)
 
@@ -172,5 +181,6 @@ movie maker: room ≈ −30 dB, rolls ≈ −14 dB, pin hits up to −10 dB, pea
 - **Phase 3 — done (2026-09-18):** pull-back throw, full-speed roll (no live slow-mo; engine damping on the
   ball switched off — it had been costing ~25% of the speed), swoop → chase → pin-deck cameras, instant
   replay (X) from a low deck camera, and the predictive aim guide (matches the real throw to ~1 cm at 15 m).
-- **Phase 2 — The Spectral Lounge and the three balls are done.** Next: The Crypt
-  (reference `alley_neon.webp`) and The Void (`alley_void.webp`), then an alley picker.
+- **Phase 2 — done (2026-09-18):** all three alleys (The Spectral Lounge, The Void, The Crypt), the alley
+  picker, the three balls and three pin sets. The web pck is now ~41 MB (three 12-14 MB alleys) - a lighter
+  web GLB per alley is the next web-polish job.

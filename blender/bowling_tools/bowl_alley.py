@@ -483,13 +483,16 @@ def lantern(brass, glass, x, y, z):
     revolve(brass, [(0.04, 0.21), (0.06, 0.23), (0.02, 0.30), (0.0, 0.32)], 8, centre=(x, y, z))
 
 
-def build_decor(M, c):
+RUGS = ((-6.3, -1.0, 1.1, 4.5), (6.3, -1.0, 1.1, 4.5), (0.0, -7.6, 3.2, 1.8))
+
+
+def build_decor(M, c, rugs=RUGS, portraits=True, chandeliers=CHANDELIERS):
     brass, wax, fl, gilt, wood = (bmesh.new() for _ in range(5))
     vel, tops, glass, orb, case, rug, banner, port = (bmesh.new() for _ in range(8))
     fuv, buv, puv, ruv = {}, {}, {}, {}
     c_lights = []
 
-    for cx, cy, cz in CHANDELIERS:
+    for cx, cy, cz in chandeliers:
         chandelier(brass, wax, fl, fuv, cx, cy, cz)
     for side in (-1, 1):
         wx = side * (HALL_X - 0.08)
@@ -527,7 +530,7 @@ def build_decor(M, c):
                  0.02, sides=6)
 
     # ghost portraits between the side windows
-    for side in (-1, 1):
+    for side in ((-1, 1) if portraits else ()):
         x = side * (HALL_X - 0.1)
         for y in (3.75, 10.25):
             w, h, zc = 1.0, 1.35, 2.6
@@ -564,7 +567,7 @@ def build_decor(M, c):
                                   0.13 - 0.13 * math.cos(math.pi * t / 12)) for t in range(1, 12)]
             + [(0.0, 0.26)], 16, centre=(-5.3, -4.62, 1.14))
     # rugs
-    for x, y, hw, hh in ((-6.3, -1.0, 1.1, 4.5), (6.3, -1.0, 1.1, 4.5), (0.0, -7.6, 3.2, 1.8)):
+    for x, y, hw, hh in rugs:
         uv_quad(rug, [(x - hw, y - hh, 0.008), (x + hw, y - hh, 0.008), (x + hw, y + hh, 0.008),
                       (x - hw, y + hh, 0.008)], ruv)
 
@@ -590,10 +593,10 @@ def build_decor(M, c):
 
 
 # ======================================================= lights + cameras ===
-def build_markers(c, candle_spots, lanterns):
+def build_markers(c, candle_spots, lanterns, chandeliers=CHANDELIERS):
     """LGT_* empties become Godot lights (see alley_theme.gd)."""
     k = 0
-    for x, y, z in CHANDELIERS:
+    for x, y, z in chandeliers:
         empty("LGT_Chandelier_%d" % k, (x, y, z + 0.1), c); k += 1
     for i, (x, y, z) in enumerate(candle_spots):
         empty("LGT_Candle_%d" % i, (x, y, z), c)
@@ -624,19 +627,22 @@ PREVIEW = {"Chandelier": ('POINT', 320.0, (1.0, 0.66, 0.34), 0.6),
            "Approach": ('POINT', 120.0, (1.0, 0.7, 0.45), 0.5)}
 
 
-def build_preview_lights(markers_col, c):
+def build_preview_lights(markers_col, c, preview=None, shadows=("Chandelier", "PinSpot", "Window")):
     """Real Blender lights at the markers, for EEVEE previews only (not exported)."""
+    P = dict(PREVIEW, **(preview or {}))
     wipe("BWLLGT_")
     for ob in list(markers_col.objects):
         if not ob.name.startswith("LGT_"):
             continue
         kind = ob.name.split("_")[1]
-        typ, energy, color, size = PREVIEW[kind]
+        if kind not in P:
+            continue
+        typ, energy, color, size = P[kind]
         d = bpy.data.lights.new("BWLLGT_" + ob.name, typ)
         d.energy, d.color = energy, color
         d.shadow_soft_size = size
-        d.use_shadow = kind in ("Chandelier", "PinSpot", "Window")
-        if kind == "Candle":
+        d.use_shadow = kind in shadows
+        if kind in ("Candle", "Neon"):
             d.specular_factor = 0.1
         lo = bpy.data.objects.new("BWLLGT_" + ob.name, d)
         lo.location = ob.location

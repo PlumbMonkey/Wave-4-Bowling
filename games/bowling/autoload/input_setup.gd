@@ -28,6 +28,7 @@ func _enter_tree() -> void:
 	_action("restart", [_button(JOY_BUTTON_START), _key(KEY_R)])
 	_action("mute", [_button(JOY_BUTTON_BACK), _key(KEY_M)])
 	_action("pin_style", [_button(JOY_BUTTON_DPAD_UP), _key(KEY_P)])
+	_action("alley", [_button(JOY_BUTTON_DPAD_DOWN), _key(KEY_V)])
 
 
 func _action(name: StringName, events: Array, deadzone := DEADZONE) -> void:
