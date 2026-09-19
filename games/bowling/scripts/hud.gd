@@ -21,6 +21,14 @@ var _bars: Array[ColorRect] = []
 var _replay_label: Label
 var _replay_bar: ColorRect
 var _msg_tween: Tween
+var _art: TextureRect           ## a painted call-out, when there is one
+var _art_tween: Tween
+var _art_cache := {}
+
+## Painted call-outs: drop art/callouts/<kind>.png into the project (transparent
+## PNG, roughly 2:1) and it replaces the text for that result.
+const CALLOUT_DIR := "res://art/callouts/"
+const CALLOUT_MAX := Vector2(1100, 560)
 
 
 func _ready() -> void:
@@ -72,6 +80,13 @@ func _ready() -> void:
 	_msg.add_theme_color_override("font_outline_color", Color(0.1, 0.0, 0.2))
 	_msg.add_theme_constant_override("outline_size", 16)
 	_msg.modulate.a = 0.0
+
+	_art = TextureRect.new()
+	_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_art.visible = false
+	root.add_child(_art)
 
 	_speed = _label("", 22, INK)
 	_speed.position = Vector2(1240, 900)
@@ -200,3 +215,49 @@ func flash(text: String, color := ECTO, hold := 1.2) -> void:
 	_msg_tween = create_tween()
 	_msg_tween.tween_interval(hold)
 	_msg_tween.tween_property(_msg, "modulate:a", 0.0, 0.5)
+
+
+## The texture for a call-out (strike, spare, miss, gutter), or null.
+func callout_art(kind: String) -> Texture2D:
+	if not _art_cache.has(kind):
+		var path := CALLOUT_DIR + kind + ".png"
+		_art_cache[kind] = load(path) if ResourceLoader.exists(path) else null
+	return _art_cache[kind]
+
+
+## Show a result: the painted art if it exists (slammed on with a bounce and a
+## tilt, like a sticker), otherwise the text.
+func callout(kind: String, text: String, color := ECTO, hold := 1.2) -> void:
+	var tex := callout_art(kind)
+	if tex == null:
+		flash(text, color, hold)
+		return
+	if _art_tween:
+		_art_tween.kill()
+	_msg.modulate.a = 0.0
+	var k := minf(CALLOUT_MAX.x / tex.get_width(), CALLOUT_MAX.y / tex.get_height())
+	var sz := Vector2(tex.get_width(), tex.get_height()) * k
+	_art.texture = tex
+	_art.size = sz
+	_art.position = (Vector2(1920, 1080) - sz) * 0.5 + Vector2(0, -60)
+	_art.pivot_offset = sz * 0.5
+	_art.visible = true
+	_art.modulate.a = 1.0
+	_art.scale = Vector2.ONE * 1.6
+	_art.rotation = deg_to_rad(randf_range(-7.0, 3.0))
+	_art_tween = create_tween()
+	_art_tween.tween_property(_art, "scale", Vector2.ONE * 0.94, 0.14).set_trans(Tween.TRANS_QUAD) 		.set_ease(Tween.EASE_IN)
+	_art_tween.tween_property(_art, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_BACK) 		.set_ease(Tween.EASE_OUT)
+	_art_tween.tween_interval(hold)
+	_art_tween.tween_property(_art, "modulate:a", 0.0, 0.4)
+	_art_tween.tween_callback(func(): _art.visible = false)
+
+
+## Clear any call-out or message (a menu is opening over the HUD).
+func clear_message() -> void:
+	if _msg_tween:
+		_msg_tween.kill()
+	if _art_tween:
+		_art_tween.kill()
+	_msg.modulate.a = 0.0
+	_art.visible = false

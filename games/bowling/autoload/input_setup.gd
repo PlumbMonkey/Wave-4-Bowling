@@ -25,7 +25,12 @@ func _enter_tree() -> void:
 	_action("spin_right", [_button(JOY_BUTTON_RIGHT_SHOULDER), _key(KEY_E)])
 	_action("confirm", [_button(JOY_BUTTON_A), _key(KEY_ENTER)])
 	_action("next_ball", [_button(JOY_BUTTON_Y), _key(KEY_B)])
-	_action("restart", [_button(JOY_BUTTON_START), _key(KEY_R)])
+	_action("restart", [_key(KEY_R)])
+	_action("pause", [_button(JOY_BUTTON_START), _key(KEY_ESCAPE)])
+	# menus: the left stick navigates too (the D-pad and arrows already do)
+	for a in [["ui_up", JOY_AXIS_LEFT_Y, -1.0], ["ui_down", JOY_AXIS_LEFT_Y, 1.0],
+			["ui_left", JOY_AXIS_LEFT_X, -1.0], ["ui_right", JOY_AXIS_LEFT_X, 1.0]]:
+		InputMap.action_add_event(a[0], _axis(a[1], a[2]))
 	_action("mute", [_button(JOY_BUTTON_BACK), _key(KEY_M)])
 	_action("pin_style", [_button(JOY_BUTTON_DPAD_UP), _key(KEY_P)])
 	_action("alley", [_button(JOY_BUTTON_DPAD_DOWN), _key(KEY_V)])

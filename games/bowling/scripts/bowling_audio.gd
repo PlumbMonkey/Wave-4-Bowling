@@ -16,6 +16,8 @@ extends Node
 ## Sounds come from tools/make_sounds.py (synthesised, no samples).
 
 const DIR := "res://audio/"
+## stingers play on their own bus, so the settings menu can turn them down
+const CALLOUTS := ["strike", "spare", "gutter", "final"]
 const VOICES := 28
 const PAIR_GAP := 0.05
 const CRASH_DELAY := 0.09        ## after the ball arrives, count the pins in flight
@@ -34,6 +36,7 @@ var _roll: AudioStreamPlayer3D
 var _gutter: AudioStreamPlayer3D
 var _amb: AudioStreamPlayer
 var _ui: AudioStreamPlayer
+var _call: AudioStreamPlayer      ## strike / spare / gutter / final stingers
 var _recording := false
 var _rec_t := 0.0
 var _replay_from := 0.0
@@ -78,6 +81,9 @@ func setup(b: BowlingBall, pins: Array) -> void:
 	_ui = AudioStreamPlayer.new()
 	_ui.bus = "SFX"
 	add_child(_ui)
+	_call = AudioStreamPlayer.new()
+	_call.bus = "Callouts"
+	add_child(_call)
 
 	ball.contact_monitor = true
 	ball.max_contacts_reported = 6
@@ -119,6 +125,10 @@ func _make_buses() -> void:
 	var amb := AudioServer.bus_count - 1
 	AudioServer.set_bus_name(amb, "Ambience")
 	AudioServer.set_bus_send(amb, "Master")
+	AudioServer.add_bus()
+	var calls := AudioServer.bus_count - 1
+	AudioServer.set_bus_name(calls, "Callouts")
+	AudioServer.set_bus_send(calls, "Master")
 
 
 func _load(key: String, files: Array) -> void:
@@ -171,10 +181,11 @@ func play(key: String, pos = null, volume_db := 0.0, pitch := 1.0) -> void:
 	if _recording:
 		events.append([_rec_t, key, pos, volume_db, pitch])
 	if pos == null:
-		_ui.stream = stream
-		_ui.volume_db = volume_db
-		_ui.pitch_scale = pitch
-		_ui.play()
+		var ui := _call if CALLOUTS.has(key) else _ui
+		ui.stream = stream
+		ui.volume_db = volume_db
+		ui.pitch_scale = pitch
+		ui.play()
 		return
 	var p := _pool[_next]
 	_next = (_next + 1) % _pool.size()
@@ -303,6 +314,14 @@ func replay_to(t: float, rate: float) -> void:
 			play(e[1], e[2], float(e[3]) - 2.0, float(e[4]) * lerpf(0.55, 1.0, rate))
 			_recording = was
 	_replay_from = maxf(_replay_from, t)
+
+
+## Bus volumes from the settings menu, each 0..1.
+static func set_volumes(master: float, sfx: float, amb: float, callouts: float) -> void:
+	for pair in [["Master", master], ["SFX", sfx], ["Ambience", amb], ["Callouts", callouts]]:
+		var i := AudioServer.get_bus_index(pair[0])
+		if i >= 0:
+			AudioServer.set_bus_volume_db(i, linear_to_db(maxf(float(pair[1]), 0.0001)))
 
 
 func set_muted(m: bool) -> void:

@@ -17,7 +17,15 @@ enum { DESKTOP, WEB }
 const DESKTOP_ONLY_LIGHTS := ["Candle", "Lantern", "Pit", "Orb", "Neon", "Moon", "Torch"]
 
 
-static func detect() -> int:
+## The web build (or any Compatibility-renderer run) can't do the desktop look at all.
+static func web_only() -> bool:
+	return OS.has_feature("web") or RenderingServer.get_current_rendering_method() == "gl_compatibility"
+
+
+## quality: "auto" | "desktop" | "web" (the settings menu); a --profile flag wins.
+static func detect(quality := "auto") -> int:
+	if web_only() or quality == "web":
+		return WEB
 	for a in OS.get_cmdline_user_args():
 		if a == "--profile=web":
 			return WEB

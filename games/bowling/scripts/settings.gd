@@ -12,6 +12,14 @@ static func load_all() -> Dictionary:
 		"ball": cfg.get_value("play", "ball", 0),
 		"pins": cfg.get_value("play", "pins", "classic"),
 		"alley": cfg.get_value("play", "alley", "lounge"),
+		"best": cfg.get_value("play", "best", 0),
+		"vol_master": cfg.get_value("play", "vol_master", 0.9),
+		"vol_sfx": cfg.get_value("play", "vol_sfx", 1.0),
+		"vol_amb": cfg.get_value("play", "vol_amb", 0.8),
+		"vol_callouts": cfg.get_value("play", "vol_callouts", 0.7),
+		"quality": cfg.get_value("play", "quality", "auto"),
+		"fullscreen": cfg.get_value("play", "fullscreen", false),
+		"guide": cfg.get_value("play", "guide", true),
 		"muted": cfg.get_value("play", "muted", false),
 	}
 

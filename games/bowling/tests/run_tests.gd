@@ -99,6 +99,9 @@ func _run() -> void:
 	print("== network groundwork")
 	var game: Node = (load("res://scenes/main.tscn") as PackedScene).instantiate()
 	root.add_child(game)
+	check(game.state == game.State.TITLE and game.menus.current() == "title", "the game opens on the title screen")
+	game.start_from_title()
+	check(game.state == game.State.AIM and not game.menus.is_open() and game.hud.visible, "BOWL starts a game")
 	for i in 60:
 		await physics_frame
 	BowlingBall.pattern = OilPattern.house()
@@ -157,6 +160,30 @@ func _run() -> void:
 		check(game.get_children().filter(func(n): return n is AlleyTheme and not n.is_queued_for_deletion()).size() == 1,
 			"%s replaces the last alley rather than stacking" % id)
 	game.set_alley("lounge")
+
+	print("== menus")
+	game.menus.open("pause")
+	check(paused and game.menus.current() == "pause", "Start / Esc pauses the game under the menu")
+	game.menus.close()
+	check(not paused, "resume unpauses")
+	BowlingSettings.save_value("vol_callouts", 0.5)
+	game.apply_volumes()
+	var cb := AudioServer.get_bus_index("Callouts")
+	check(cb >= 0 and absf(AudioServer.get_bus_volume_db(cb) - linear_to_db(0.5)) < 0.01,
+		"the call-out volume slider drives its own bus")
+	BowlingSettings.save_value("vol_callouts", 0.7)
+	game.apply_volumes()
+	check(game.hud.callout_art("no_such_kind") == null, "a call-out with no painting falls back to text")
+	game.hud.callout("strike", "STRIKE!")
+	var mixed_card := card([10, 7, 3, 9, 0, 10, 0, 8, 8, 2, 0, 6, 10, 10, 10, 8, 1])
+	game.menus.show_over(mixed_card, 150)
+	check(game.menus.current() == "over" and game.menus._over_score.text == "167"
+		and game.menus._over_stats.text.contains("STRIKES  5") and game.menus._over_best.text == "NEW BEST GAME!",
+		"game over shows the score, strikes and a new best")
+	game.menus.close()
+	game.show_title()
+	check(game.state == game.State.TITLE and not game.ball.visible, "quit to title hides the ball and opens the title")
+	game.menus.close()
 	game.queue_free()
 
 	print("\n%s (%d failure%s)" % ["PASS" if failures == 0 else "FAILED", failures, "" if failures == 1 else "s"])

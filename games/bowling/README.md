@@ -29,12 +29,23 @@ once, or Godot won't find the class.
 | hook (while the ball rolls) | hold LB / RB | hold Q / E |
 | steer (while the ball rolls) | left stick left/right — a subtle nudge, off in the last metre | A / D |
 | change ball (while aiming) | Y | B |
-| restart / play again | Start / A | R / Enter |
+| pause menu (resume, restart, settings, quit to title) | Start | Esc |
+| restart the game | pause menu | R |
 | mute | View (Back) | M |
 | pin set: Classic → Bone → Reliquary (while aiming) | D-pad up | P |
 | alley: Spectral Lounge → The Void → The Crypt (while aiming) | D-pad down | V |
 
-Click once in the window to capture the mouse; Esc frees it.
+Click once in the window to capture the mouse; opening a menu frees it.
+
+**Menus** (`scripts/menus.gd`, built in code like the HUD): the game opens on a title screen over the
+alley (Bowl, Alley, Pins, Ball, Settings, Quit). Start / Esc pauses. Settings: master / effects /
+ambience / call-out volumes (each its own audio bus), graphics HIGH or LIGHT (the web look; hidden in
+the web build), fullscreen, aim guide on/off. Game over shows the score, strikes, spares and your best
+game. Everything is saved in `user://phantom_bowling.cfg`. Pad: D-pad / left stick to move, A select,
+◀ ▶ to change a value, B back. `tests/menu_shots.gd` screenshots every screen.
+
+**Painted call-outs:** drop `strike.png`, `spare.png`, `miss.png` or `gutter.png` into `art/callouts/`
+(transparent, about 2:1; see the README there) and it replaces the text for that result.
 
 The input map is registered in code (`autoload/input_setup.gd`), so it doesn't
 appear in the editor's Input Map tab.

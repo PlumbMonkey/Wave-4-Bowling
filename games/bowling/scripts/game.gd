@@ -19,14 +19,14 @@ signal roll_scored(pins: int, card: ScoreCard)
 ## { v, params: {x, aim, power, spin}, inputs: [spin, steer] per physics tick, pins, ball_end }
 signal throw_completed(record: Dictionary)
 
-enum State { AIM, ROLL, SETTLE, RESULT, REPLAY, GAME_OVER }
+enum State { TITLE, AIM, ROLL, SETTLE, RESULT, REPLAY, GAME_OVER }
 
 const SETTLE_TIMEOUT := 5.0
 const RESULT_HOLD := 2.6         ## how long the replay offer stays up
 const MIN_DRAW := 0.06           ## pull back at least this far before releasing
 const MOUSE_DRAW_PX := 380.0     ## mouse travel for a full draw
 const HINT_AIM := "Aim R-stick / J L / mouse   Pull back L-stick / S / mouse → release RT / click / Space   " + \
-	"Move D-pad / A D   Spin LB RB / Q E   Ball Y / B   Pins D-pad up / P   Alley D-pad down / V   Mute View / M"
+	"Move D-pad / A D   Spin LB RB / Q E   Ball Y / B   Pins D-pad up / P   Alley D-pad down / V   Pause Start / Esc"
 
 var alley: Alley
 var setter: Pinsetter
@@ -36,6 +36,10 @@ var hud: BowlingHud
 var guide: AimGuide
 var audio: BowlingAudio
 var theme: AlleyTheme
+var menus: BowlingMenus
+var guide_enabled := true
+var quality := "auto"              ## "auto" | "desktop" | "web" (settings menu)
+var _input_block := 0.0            ## seconds to ignore buttons after a menu closes
 var env: Environment
 var replay := ThrowReplay.new()
 var alley_id := "lounge"
@@ -84,8 +88,12 @@ func _ready() -> void:
 			autoplay = true
 			DirAccess.make_dir_recursive_absolute(shots_dir)
 	_rng.seed = 7
-	profile = GraphicsProfile.detect()
 	var saved := BowlingSettings.load_all()
+	quality = String(saved.quality)
+	profile = GraphicsProfile.detect(quality)
+	guide_enabled = bool(saved.guide)
+	if bool(saved.fullscreen) and not autoplay and not OS.has_feature("web"):
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 	ball_index = clampi(int(saved.ball), 0, 2)
 	pin_style = String(saved.pins)
 	alley_id = String(saved.alley)
@@ -125,10 +133,19 @@ func _ready() -> void:
 	hud = BowlingHud.new()
 	add_child(hud)
 	_apply_pins(false)
-	new_game()
+	menus = BowlingMenus.new()
+	menus.game = self
+	add_child(menus)
+	menus.closed.connect(func(): _input_block = 0.3)
+	apply_volumes()
+	if autoplay:
+		new_game()
+	else:
+		show_title()
 
 
 func new_game() -> void:
+	ball.visible = true
 	card = ScoreCard.new()
 	if autoplay:
 		_lane_rng.seed = 11
@@ -157,7 +174,7 @@ func _enter_aim() -> void:
 	hud.set_power(0.0, false)
 	hud.set_hint(HINT_AIM)
 	_show_lane()
-	guide.visible = true
+	guide.visible = guide_enabled
 	if autoplay and card.current_frame() < 10:
 		ball_index = card.current_frame() % ball_kinds.size()      # show off every ball
 		_apply_ball()
@@ -194,6 +211,7 @@ func process_throw(params: Dictionary) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_input_block = maxf(0.0, _input_block - delta)
 	match state:
 		State.AIM:
 			_update_aim(delta)
@@ -205,21 +223,14 @@ func _physics_process(delta: float) -> void:
 					process_throw(_auto_next)
 				elif absf(_auto_wait - 0.25) < 0.005:
 					_shot("aim")
-			elif Input.is_action_just_pressed("next_ball"):
-				ball_index = (ball_index + 1) % ball_kinds.size()
-				_apply_ball()
+			elif _pressed("next_ball"):
+				cycle_ball(1)
 				audio.play("select", null, -10.0)
-				BowlingSettings.save_value("ball", ball_index)
-			elif Input.is_action_just_pressed("alley"):
-				var ids: Array = AlleyTheme.ALLEY_ORDER
-				set_alley(ids[(ids.find(alley_id) + 1) % ids.size()], true)
-				BowlingSettings.save_value("alley", alley_id)
-			elif Input.is_action_just_pressed("pin_style"):
-				var order: Array = BowlingPin.STYLE_ORDER
-				pin_style = order[(order.find(pin_style) + 1) % order.size()]
-				_apply_pins(true)
-				BowlingSettings.save_value("pins", pin_style)
-			elif Input.is_action_just_pressed("release"):
+			elif _pressed("alley"):
+				cycle_alley(1, true)
+			elif _pressed("pin_style"):
+				cycle_pins(1, true)
+			elif _pressed("release"):
 				_try_release()
 		State.ROLL:
 			_roll_t += delta
@@ -255,9 +266,9 @@ func _physics_process(delta: float) -> void:
 			_result_t += delta
 			var auto_replay := autoplay and _auto_replays < 1 and _result_t > 0.8 \
 				and _standing_before == 10 and setter.standing().is_empty()
-			if (Input.is_action_just_pressed("replay") or auto_replay) and replay.can_play():
+			if (_pressed("replay") or auto_replay) and replay.can_play():
 				_start_replay()
-			elif Input.is_action_just_pressed("confirm") or Input.is_action_just_pressed("release") \
+			elif _pressed("confirm") or _pressed("release") \
 					or _result_t > RESULT_HOLD:
 				_advance()
 		State.REPLAY:
@@ -267,8 +278,8 @@ func _physics_process(delta: float) -> void:
 			if autoplay and not _replay_shot and replay.progress() > 0.45:
 				_replay_shot = true
 				_shot("replay")
-			if not going or Input.is_action_just_pressed("confirm") \
-					or Input.is_action_just_pressed("replay"):
+			if not going or _pressed("confirm") \
+					or _pressed("replay"):
 				replay.finish()
 				hud.set_replay(false)
 				_advance()
@@ -280,9 +291,9 @@ func _update_aim(delta: float) -> void:
 		-BowlingSpec.X_MAX, BowlingSpec.X_MAX)
 	aim = clampf(aim + Input.get_axis("aim_left", "aim_right") * deg_to_rad(2.5) * delta,
 		-BowlingSpec.AIM_MAX, BowlingSpec.AIM_MAX)
-	if Input.is_action_just_pressed("spin_left"):
+	if _pressed("spin_left"):
 		release_spin = clampf(release_spin - 0.25, -1.0, 1.0)
-	if Input.is_action_just_pressed("spin_right"):
+	if _pressed("spin_right"):
 		release_spin = clampf(release_spin + 0.25, -1.0, 1.0)
 	# the draw: left stick pulled toward you, mouse dragged toward you, or S / W
 	var sy := 0.0
@@ -316,6 +327,13 @@ func _try_release() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("mute"):
+		audio.set_muted(not audio.muted)
+		BowlingSettings.save_value("muted", audio.muted)
+		hud.flash("SOUND OFF" if audio.muted else "SOUND ON", BowlingHud.INK, 0.4)
+		return
+	if menus.is_open() or state == State.TITLE or _input_block > 0.0:
+		return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED   # first click grabs the mouse
@@ -327,15 +345,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			and state == State.AIM:
 		aim = clampf(aim + event.relative.x * 0.0002, -BowlingSpec.AIM_MAX, BowlingSpec.AIM_MAX)
 		_mouse_draw = clampf(_mouse_draw + event.relative.y / MOUSE_DRAW_PX, 0.0, 1.0)
-	elif event.is_action_pressed("ui_cancel"):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	elif event.is_action_pressed("mute"):
-		audio.set_muted(not audio.muted)
-		BowlingSettings.save_value("muted", audio.muted)
-		hud.flash("SOUND OFF" if audio.muted else "SOUND ON", BowlingHud.INK, 0.4)
 	elif event.is_action_pressed("restart"):
-		new_game()
-	elif event.is_action_pressed("confirm") and state == State.GAME_OVER:
 		new_game()
 
 
@@ -394,9 +404,19 @@ func _start_replay() -> void:
 func _advance() -> void:
 	if card.is_complete():
 		state = State.GAME_OVER
-		hud.flash("FINAL  %d" % card.total(), BowlingHud.BRASS, 60.0)
 		audio.play("final", null, -18.0)
-		hud.set_hint("Press A / Enter to bowl again")
+		hud.set_hint("")
+		guide.visible = false
+		if not autoplay:
+			hud.flash("FINAL  %d" % card.total(), BowlingHud.BRASS, 1.0)
+			var best := int(BowlingSettings.load_all().best)
+			if card.total() > best:
+				BowlingSettings.save_value("best", card.total())
+			await get_tree().create_timer(1.6).timeout
+			if state == State.GAME_OVER and not menus.is_open():
+				menus.show_over(card, best)
+			return
+		hud.flash("FINAL  %d" % card.total(), BowlingHud.BRASS, 60.0)
 		if autoplay:
 			await get_tree().create_timer(1.0).timeout
 			_shot("final")
@@ -415,16 +435,16 @@ func _advance() -> void:
 
 func _announce(pins: int, standing_now: int) -> void:
 	if ball.in_gutter and pins == 0:
-		hud.flash("GUTTER", BowlingHud.VIOLET)
+		hud.callout("gutter", "GUTTER", BowlingHud.VIOLET)
 		audio.play("gutter", null, -23.0)
 	elif pins == 10 and _standing_before == 10:
-		hud.flash("STRIKE!")
+		hud.callout("strike", "STRIKE!")
 		audio.play("strike", null, -20.0)
 	elif standing_now == 0:
-		hud.flash("SPARE!")
+		hud.callout("spare", "SPARE!")
 		audio.play("spare", null, -21.0)
 	elif pins == 0:
-		hud.flash("MISS", BowlingHud.VIOLET)
+		hud.callout("miss", "MISS", BowlingHud.VIOLET)
 	else:
 		hud.flash(str(pins), BowlingHud.INK, 0.6)
 
@@ -453,6 +473,12 @@ func _update_camera(delta: float) -> void:
 	var bp := ball.global_position
 	var rate := 5.0
 	match state:
+		State.TITLE:
+			# a slow drift down the aisle behind the title menu
+			var tt := Time.get_ticks_msec() * 0.001
+			pos = Vector3(1.1 + sin(tt * 0.07) * 1.0, 1.9 + sin(tt * 0.11) * 0.15, 3.6)
+			look = Vector3(0.8 + sin(tt * 0.05) * 0.8, 0.9, -18.0)
+			rate = 1.2
 		State.AIM:
 			var t := _aim_cam()
 			pos = t[0]
@@ -479,6 +505,94 @@ func _update_camera(delta: float) -> void:
 	cam.global_position = cam.global_position.lerp(pos, k)
 	_cam_look = _cam_look.lerp(look, k)
 	cam.look_at(_cam_look)
+
+
+func _pressed(action: StringName) -> bool:
+	return _input_block <= 0.0 and Input.is_action_just_pressed(action)
+
+
+# ------------------------------------------------------------------- menus --
+## The title screen, over the alley with a drifting camera.
+func show_title() -> void:
+	get_tree().paused = false
+	if state == State.REPLAY:
+		replay.finish()
+		hud.set_replay(false)
+	state = State.TITLE
+	card = ScoreCard.new()
+	hud.update_card(card)
+	hud.visible = false
+	guide.visible = false
+	setter.full_rack()
+	ball.hold(Vector3(0.0, -5.0, 6.0))       # out of sight until the game starts
+	ball.visible = false
+	menus.open("title")
+
+
+func start_from_title() -> void:
+	menus.close()
+	hud.visible = true
+	new_game()
+
+
+func restart_game() -> void:
+	get_tree().paused = false
+	hud.visible = true
+	if state == State.REPLAY:
+		replay.finish()
+		hud.set_replay(false)
+	new_game()
+
+
+func can_pause() -> bool:
+	return state != State.TITLE and not autoplay
+
+
+func cycle_alley(dir: int, announce := false) -> void:
+	var ids: Array = AlleyTheme.ALLEY_ORDER
+	set_alley(ids[(ids.find(alley_id) + dir + ids.size()) % ids.size()], announce)
+	BowlingSettings.save_value("alley", alley_id)
+
+
+func cycle_pins(dir: int, announce := false) -> void:
+	var order: Array = BowlingPin.STYLE_ORDER
+	pin_style = order[(order.find(pin_style) + dir + order.size()) % order.size()]
+	_apply_pins(announce)
+	BowlingSettings.save_value("pins", pin_style)
+
+
+func cycle_ball(dir: int) -> void:
+	ball_index = (ball_index + dir + ball_kinds.size()) % ball_kinds.size()
+	_apply_ball()
+	BowlingSettings.save_value("ball", ball_index)
+
+
+func ball_name() -> String:
+	var k: String = ball_kinds[ball_index]
+	return BowlingBall.SKINS[k].name if BowlingBall.SKINS.has(k) else "House ball"
+
+
+func quality_label() -> String:
+	return "HIGH" if profile == GraphicsProfile.DESKTOP else "LIGHT (web look)"
+
+
+func cycle_quality(_dir: int) -> void:
+	quality = "web" if profile == GraphicsProfile.DESKTOP else "desktop"
+	BowlingSettings.save_value("quality", quality)
+	profile = GraphicsProfile.detect(quality)
+	set_alley(alley_id)
+
+
+func toggle_guide() -> void:
+	guide_enabled = not guide_enabled
+	BowlingSettings.save_value("guide", guide_enabled)
+	guide.visible = guide_enabled and state == State.AIM
+
+
+func apply_volumes() -> void:
+	var v := BowlingSettings.load_all()
+	BowlingAudio.set_volumes(float(v.vol_master), float(v.vol_sfx), float(v.vol_amb),
+		float(v.vol_callouts))
 
 
 ## Move to another alley. Only the scenery, lights and environment change -
