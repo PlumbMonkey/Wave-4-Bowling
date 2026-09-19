@@ -69,8 +69,10 @@ falls back to plain boxes.
 
 **The Skull ball** uses a CC0 skull by CDmir (OpenGameArt; `blender/assets_src/skull_cc0`, licence file there).
 
-**Recorded pin sounds** (Settings > PIN SOUNDS > RECORDED): Gregg's CC0 Freesound recordings in `audio_src/`,
-cut by `tools/cut_recordings.py` into `audio/rec_crash_*` (a full-rack strike) and `audio/rec_pinsetter_*`.
+**Authentic pin sounds** (Settings > PIN SOUNDS > AUTHENTIC): Gregg's CC0 Freesound recordings in `audio_src/`,
+cut by `tools/cut_recordings.py` into `audio/rec_crash_*` (a whole full-rack strike), single hits for every
+contact (`rec_ball_pin_*`, `rec_pin_pin_*`, `rec_pin_lane_*`, `rec_pin_kick_*`, mined from the pinsetter
+recording's clacks) and `audio/rec_pinsetter_*`. The pinsetter cycle runs at `Pinsetter.PACE` (1.25x).
 AUTO = deep synth, original synth for bone pins; DEEP / ORIGINAL force one.
 
 **Pin sounds:** the default pin contacts have a heavier low end; the bone set keeps the original lighter

@@ -28,6 +28,10 @@ The current vertical slice is generated procedurally at runtime and includes:
 - right-stick orbit and elevation camera control;
 - hold-RT pull-back/push-forward analog cue strokes with motion-based power;
 - optional solid light-blue cue/object-ball trajectory guidance;
+- regulation-scale balls with true solid and striped shells;
+- flush surface number medallions that rotate with each ball;
+- a tapered six-part cue with ebony butt, inlay, leather wrap, maple shaft, ferrule, and chalked tip;
+- a regulation 2:1 playing surface with correctly scaled, recessed pocket openings;
 - D-pad/arrow-key top, draw, and side English with physical torque;
 - legal-break validation with distinct rail-contact counting;
 - called-pocket eight-ball play and eight-on-break respotting;
@@ -53,6 +57,8 @@ Godot_v4.7.2-stable_win64.exe --path <project-folder>
 
 ![Cinematic pocket replay v0.6](docs/cinematic-replay.png)
 
+![Visual geometry corrections v0.6.1](docs/visual-geometry-0.6.1.png)
+
 ### Smoke test
 
 ```text
@@ -63,6 +69,7 @@ Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --scrip
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/menu_input_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/control_scheme_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/cinematic_feedback_test.gd
+Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/visual_assets_test.gd
 ```
 
 ## Controls

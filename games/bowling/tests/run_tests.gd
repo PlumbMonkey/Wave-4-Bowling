@@ -298,7 +298,26 @@ func _run() -> void:
 	for e in game.audio.events:
 		rec_heard[e[1]] = int(rec_heard.get(e[1], 0)) + 1
 	check(rec_heard.has("rec_crash") and not rec_heard.has("crash"),
-		"with Recorded pin sounds a full-rack hit plays the real strike (%s)" % str(rec_heard))
+		"with Authentic pin sounds a full-rack hit plays the real strike (%s)" % str(rec_heard))
+	check(game.audio.sound_set == "rec_" and game.audio._streams["rec_pin_pin"].size() == 8
+		and game.audio._streams["rec_ball_pin"].size() == 3, "...and every single contact has a recorded hit")
+	# a spare: no recorded strike, the single recorded hits instead
+	game.setter.pins[0].sweep()
+	game.setter.pins[1].sweep()
+	game.new_game()
+	game.card.roll(2)
+	game.setter.clear_deadwood()
+	for i in [0, 1]:
+		game.setter.pins[i].sweep()
+	for i in 30:
+		await physics_frame
+	game.play_remote_throw(rec_a)
+	await game.throw_completed
+	var sp_heard := {}
+	for e in game.audio.events:
+		sp_heard[e[1]] = int(sp_heard.get(e[1], 0)) + 1
+	check(not sp_heard.has("rec_crash") and (sp_heard.has("rec_ball_pin") or sp_heard.has("rec_pin_pin")),
+		"on a spare the ball and pins play recorded single hits (%s)" % str(sp_heard))
 	BowlingSettings.save_value("pin_sounds", "auto")
 	game._apply_pins(false)
 

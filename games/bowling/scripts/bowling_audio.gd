@@ -31,9 +31,10 @@ var pin_pitch := 1.0
 ## original, lighter set (kept for the bone pins).
 var sound_set := ""
 const PIN_FAMILIES := ["ball_pin", "pin_pin", "pin_lane", "pin_kick", "pin_pit", "crash"]
-## The recorded set (Settings > Pin sounds > Recorded): a real strike plays when
-## the ball meets a full rack, and a real pinsetter between balls. The synth
-## contacts stand aside while the recording plays; spares keep the synth hits.
+## The authentic set (Settings > Pin sounds > Authentic): real recordings for
+## every contact - ball on pin, pin on pin, on the deck, on the kickbacks - a
+## whole recorded strike when the ball meets a full rack (the single hits stand
+## aside while it plays), and a real pinsetter between balls.
 var recorded := false
 const HUSH := 1.6                  ## seconds the synth contacts stay quiet under a recorded strike
 var _hush := 0.0
@@ -74,6 +75,9 @@ func setup(b: BowlingBall, pins: Array) -> void:
 	for fam in PIN_FAMILIES:
 		_load("bone_" + fam, _variants("bone_" + fam, _streams[fam].size()))
 	_load("rec_crash", _variants("rec_crash", 2))
+	# single hits cut from the same recordings (tools/cut_recordings.py)
+	for fam in [["ball_pin", 3], ["pin_pin", 8], ["pin_lane", 6], ["pin_kick", 4]]:
+		_load("rec_" + fam[0], _variants("rec_" + fam[0], fam[1]))
 	_load("rec_pinsetter", _variants("rec_pinsetter", 3))
 	for n in ["roll_loop", "gutter_loop", "ambience_loop"]:
 		_loop(n)

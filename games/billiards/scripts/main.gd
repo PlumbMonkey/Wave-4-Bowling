@@ -99,7 +99,7 @@ func _ready() -> void:
 	_build_ui()
 	_build_audio()
 	_show_mode_menu()
-	get_viewport().get_window().title = "Spectral Manor Billiards — Cinematic Shot Feel v0.6"
+	get_viewport().get_window().title = "Spectral Manor Billiards — Visual Geometry v0.6.1"
 
 
 func _physics_process(delta: float) -> void:

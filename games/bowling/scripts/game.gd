@@ -791,7 +791,9 @@ const PIN_SOUND_MODES := ["auto", "deep", "original", "recorded"]
 
 
 func pin_sounds_label() -> String:
-	return String(BowlingSettings.load_all().pin_sounds).to_upper()
+	var m := String(BowlingSettings.load_all().pin_sounds)
+	return {"auto": "AUTO (synth)", "deep": "SYNTH DEEP", "original": "SYNTH ORIGINAL",
+		"recorded": "AUTHENTIC"}.get(m, m.to_upper())
 
 
 func cycle_pin_sounds(dir: int) -> void:
@@ -846,7 +848,10 @@ func _apply_pins(announce: bool) -> void:
 	# and the others get the deep set; or force one; or the recorded strike
 	var mode := String(BowlingSettings.load_all().pin_sounds)
 	audio.recorded = mode == "recorded"
-	audio.sound_set = "bone_" if mode == "original" or (mode != "deep" and pin_style == "bone") else ""
+	if audio.recorded:
+		audio.sound_set = "rec_"
+	else:
+		audio.sound_set = "bone_" if mode == "original" or (mode != "deep" and pin_style == "bone") else ""
 	audio.pin_pitch = {"reliquary": 1.06}.get(pin_style, 1.0)
 	if announce:
 		audio.play("select", null, -10.0, 0.8)

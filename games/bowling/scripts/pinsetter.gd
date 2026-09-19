@@ -15,6 +15,7 @@ const BAR_UP := 1.25            ## hidden behind the masking
 const BAR_DOWN := 0.13
 const TABLE_Z := -18.68         ## over the middle of the pin deck
 const TABLE_UP := 1.35
+const PACE := 1.25              ## every move of the cycle takes this much longer (20% slower)
 const MODEL := "res://art/pinsetter/pinsetter.glb"   ## the Blender machine (bowl_pinsetter.py)
 
 signal cycle_done
@@ -204,7 +205,7 @@ func cancel() -> void:
 func _step(node: Node3D, prop: String, to: float, dur: float) -> void:
 	_cur = create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_cur.set_speed_scale(_speed)
-	_cur.tween_property(node, prop, to, dur)
+	_cur.tween_property(node, prop, to, dur * PACE)
 	await _cur.finished
 
 
@@ -217,7 +218,7 @@ func _table_to(to_y: float, hung: Array, dur: float) -> void:
 		for p in hung:
 			var at: Vector3 = (p as BowlingPin).global_position
 			(p as BowlingPin).global_position = Vector3(at.x, y - PIN_HANG, at.z),
-		_table.position.y, to_y, dur)
+		_table.position.y, to_y, dur * PACE)
 	await _cur.finished
 
 
@@ -235,5 +236,5 @@ func _rake(skip: Array, dur: float) -> void:
 				p.freeze = true
 				var nz := z - 0.07
 				p.global_position = Vector3(at.x, at.y if nz > BowlingSpec.DECK_END else -0.25, nz),
-		BAR_FRONT, BAR_BACK, dur)
+		BAR_FRONT, BAR_BACK, dur * PACE)
 	await _cur.finished

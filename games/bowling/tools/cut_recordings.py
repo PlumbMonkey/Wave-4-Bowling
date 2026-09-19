@@ -2,6 +2,8 @@
 
     audio_src/ball roll and strike.mp3  -> audio/rec_crash_1.wav, rec_crash_2.wav
     audio_src/pin setter.wav            -> audio/rec_pinsetter_1..3.wav
+    both                                -> single hits: rec_ball_pin_*, rec_pin_pin_*,
+                                           rec_pin_kick_*, rec_pin_lane_* (the Authentic set)
 
 Needs ffmpeg on the PATH (to decode the mp3). The recordings are Gregg's
 (sourced from Freesound, CC0); audio_src/ has a .gdignore so Godot skips it.
@@ -78,6 +80,60 @@ def pinsetter(count=3, length=3.0):
         save("rec_pinsetter_%d" % (i + 1), x[s:s + int(length * SR)], 0.6, peak=0.7)
 
 
+def _clean_hit(seg, tail=0.09):
+    """A hit cut from a busy recording: keep the attack, let the machine
+    rumble under it die away quickly, and roll off the low motor hum."""
+    from scipy import signal
+    t = np.arange(len(seg)) / SR
+    env = np.where(t < 0.03, 1.0, np.exp(-(t - 0.03) / tail))
+    b, a = signal.butter(2, 90 / (SR / 2), "high")
+    return signal.lfilter(b, a, seg) * env
+
+
+def _resample(x, rate):
+    idx = np.arange(0, len(x) - 1, rate)
+    return np.interp(idx, np.arange(len(x)), x)
+
+
+def hits():
+    from scipy import signal
+    x = load("pin setter.wav")
+    b, a = signal.butter(4, [1500 / (SR / 2), 9000 / (SR / 2)], "band")
+    hx = signal.filtfilt(b, a, x)
+    w = int(0.004 * SR)
+    n = len(hx) // w
+    db = 20 * np.log10(np.sqrt(np.mean(hx[:n * w].reshape(n, w) ** 2, 1)) + 1e-9)
+    floor = np.percentile(db, 50)
+    found = []
+    for k in range(10, n - 80):
+        if db[k] - np.median(db[k - 10:k]) > 10 and db[k] > floor + 14 and db[k] == db[k:k + 5].max():
+            if not found or k * w / SR - found[-1][0] > 0.15:
+                found.append((k * w / SR, db[k]))
+    found.sort(key=lambda h: -h[1])
+    clips = []
+    for t0, _ in found[:14]:
+        s0 = max(0, int((t0 - 0.008) * SR))
+        seg = _clean_hit(x[s0:s0 + int(0.32 * SR)])
+        X = np.abs(np.fft.rfft(seg))
+        f = np.fft.rfftfreq(len(seg), 1 / SR)
+        clips.append(((X * f).sum() / X.sum(), seg))
+    clips.sort(key=lambda c: -c[0])               # brightest first
+    for i, (_, seg) in enumerate(clips[:8]):
+        save("rec_pin_pin_%d" % (i + 1), seg, 0.08)
+    for i, (_, seg) in enumerate(clips[-4:]):
+        save("rec_pin_kick_%d" % (i + 1), seg, 0.08)
+    b2, a2 = signal.butter(2, 2600 / (SR / 2), "low")
+    for i, (_, seg) in enumerate(clips[2:8]):     # a pin hitting the deck: softer, lower
+        save("rec_pin_lane_%d" % (i + 1), _resample(signal.lfilter(b2, a2, seg), 0.86), 0.08)
+    # the ball meeting the head pin, from the strike recording
+    s = load("ball roll and strike.mp3")
+    t0 = onset(s, 0)
+    hit = _clean_hit(s[t0:t0 + int(0.45 * SR)], 0.12)
+    for i, rate in enumerate((1.0, 0.95, 1.05)):
+        save("rec_ball_pin_%d" % (i + 1), _resample(hit, rate), 0.12)
+
+
 if __name__ == "__main__":
     strike()
     pinsetter()
+    hits()
