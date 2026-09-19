@@ -16,6 +16,8 @@ The current vertical slice is generated procedurally at runtime and includes:
 - Practice Alone, Versus Computer, and Local Two Player modes;
 - eight-ball group assignment, legal-target checking, fouls, scratches, turn continuation, and win/loss evaluation;
 - an AI shot planner with Easy, Medium, and Hard accuracy profiles;
+- Hard AI one-cushion banks, defensive safeties, and next-shot position scoring;
+- visible computer tactical intent and a spectral bank-path guide;
 - interactive human and strategic computer ball-in-hand placement;
 - right-stick/arrow-key top, draw, and side English with physical torque;
 - legal-break validation with distinct rail-contact counting;
@@ -35,6 +37,8 @@ Godot_v4.7.2-stable_win64.exe --path <project-folder>
 ![Gameplay Core mode selection](docs/gameplay-core.png)
 
 ![Ball Control v0.3](docs/ball-control.png)
+
+![Tactical AI v0.4](docs/tactical-ai.png)
 
 ### Smoke test
 
@@ -66,7 +70,7 @@ The supplied concept images are preserved under `docs/reference/`. They are visu
 ## Next production passes
 
 1. Replace the procedural room and table with optimized Blender assets.
-2. Expand Hard AI with bank shots, safeties, and deeper cue-ball position planning.
+2. Add multi-rail/combinations only after one-cushion bank accuracy is playtested.
 3. Tune spin decay, cushion transfer, table friction, and shot strength from playtesting.
 4. Record and layer production resin, rubber, roll, ambience, and reverb audio.
 5. Add accessibility settings, save data, export presets, and optional GIF highlights.

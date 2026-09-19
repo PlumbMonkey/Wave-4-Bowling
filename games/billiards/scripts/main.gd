@@ -25,6 +25,7 @@ var rules := EightBallRulesClass.new()
 var computer := BilliardsAIClass.new()
 var cue_controls := CueControllerClass.new()
 var aim_guide: AimGuide
+var tactical_guide: AimGuide
 var cue_visual: MeshInstance3D
 var camera: Camera3D
 var camera_yaw := 0.0
@@ -64,6 +65,7 @@ var match_over_label: Label
 var spin_dot: ColorRect
 var spin_label: Label
 var called_pocket_label: Label
+var ai_tactic_label: Label
 var resin_stream: AudioStreamWAV
 var cushion_stream: AudioStreamWAV
 
@@ -78,7 +80,7 @@ func _ready() -> void:
 	_build_ui()
 	_build_audio()
 	_show_mode_menu()
-	get_viewport().get_window().title = "Spectral Manor Billiards — Ball Control v0.3"
+	get_viewport().get_window().title = "Spectral Manor Billiards — Tactical AI v0.4"
 
 
 func _physics_process(delta: float) -> void:
@@ -211,6 +213,8 @@ func _strike_direction(direction: Vector3, power: float) -> void:
 	called_pocket_label.visible = false
 	for marker in pocket_markers:
 		marker.visible = false
+	tactical_guide.visible = false
+	ai_tactic_label.visible = false
 	_update_ui("Shot in motion")
 
 
@@ -223,6 +227,7 @@ func _begin_ai_turn() -> void:
 			positions[ball.number] = ball.global_position
 	ai_plan = computer.plan_shot(cue_ball.global_position, positions, rules.legal_targets(2), pocket_positions)
 	cue_controls.spin = ai_plan.get("spin", Vector2.ZERO)
+	_update_spin_reticle()
 	if rules.legal_targets(2) == [8]:
 		called_pocket_index = int(ai_plan.get("pocket_index", 0))
 		_update_called_pocket_display()
@@ -231,6 +236,8 @@ func _begin_ai_turn() -> void:
 	ai_target_yaw = atan2(direction.z, direction.x)
 	ai_aim_time = 0.0
 	state = GameState.AI_THINKING
+	ai_tactic_label.text = "THE MANOR • %s" % str(ai_plan.get("shot_type", "DIRECT"))
+	ai_tactic_label.visible = true
 	_update_called_pocket_display()
 	_update_ui("The manor studies the table…")
 
@@ -245,6 +252,7 @@ func _update_ai_thinking(delta: float) -> void:
 	aim_guide.visible = true
 	aim_guide.update_guide(cue_ball.global_position, direction, _aim_distance(direction), delta)
 	_update_cue_visual(direction)
+	_update_tactical_guide(delta)
 	if t >= 1.0:
 		var planned_direction: Vector3 = ai_plan.get("direction", direction)
 		var planned_power := float(ai_plan.get("power", 0.45))
@@ -253,6 +261,28 @@ func _update_ai_thinking(delta: float) -> void:
 
 func _is_computer_turn() -> bool:
 	return selected_mode == EightBallRules.Mode.VS_CPU and current_player == 2
+
+
+func _update_tactical_guide(delta: float) -> void:
+	if str(ai_plan.get("shot_type", "")) != "BANK" or not ai_plan.has("bank_point"):
+		tactical_guide.visible = false
+		return
+	var target_ball := _ball_by_number(int(ai_plan.get("target", -1)))
+	if target_ball == null:
+		tactical_guide.visible = false
+		return
+	var bank_point: Vector3 = ai_plan["bank_point"]
+	var path := bank_point - target_ball.global_position
+	path.y = 0.0
+	tactical_guide.visible = true
+	tactical_guide.update_guide(target_ball.global_position, path.normalized(), path.length(), delta)
+
+
+func _ball_by_number(number: int) -> SpectralBall:
+	for ball in balls:
+		if ball.number == number:
+			return ball
+	return null
 
 
 func _begin_ball_in_hand(kitchen_only: bool) -> void:
@@ -767,6 +797,9 @@ func _build_camera_and_aiming() -> void:
 
 	aim_guide = AimGuideClass.new() as AimGuide
 	add_child(aim_guide)
+	tactical_guide = AimGuideClass.new() as AimGuide
+	tactical_guide.visible = false
+	add_child(tactical_guide)
 
 	cue_visual = MeshInstance3D.new()
 	var cue_mesh := CylinderMesh.new()
@@ -863,6 +896,16 @@ func _build_ui() -> void:
 	called_pocket_label.add_theme_font_size_override("font_size", 16)
 	called_pocket_label.add_theme_color_override("font_color", Color("75ffe1"))
 	canvas.add_child(called_pocket_label)
+
+	ai_tactic_label = Label.new()
+	ai_tactic_label.visible = false
+	ai_tactic_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	ai_tactic_label.position = Vector2(-150.0, 72.0)
+	ai_tactic_label.size = Vector2(300.0, 30.0)
+	ai_tactic_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ai_tactic_label.add_theme_font_size_override("font_size", 18)
+	ai_tactic_label.add_theme_color_override("font_color", Color("75ffe1"))
+	canvas.add_child(ai_tactic_label)
 
 	tip_label = Label.new()
 	tip_label.text = "Aim: Left stick / A D / mouse     English: Right stick / arrows     Charge: RT / Space or RMB\nStrike/Place: RB / Enter or LMB     Call pocket: B / C     Tactical: Y / T     Replay: X / R"
@@ -976,6 +1019,8 @@ func _show_mode_menu() -> void:
 	aim_guide.visible = false
 	cue_visual.visible = false
 	called_pocket_label.visible = false
+	ai_tactic_label.visible = false
+	tactical_guide.visible = false
 	camera.global_position = Vector3(0.0, 7.2, 7.4)
 	camera.look_at(Vector3(0.0, BED_Y, 0.0), Vector3.UP)
 	_update_ui("Choose a game mode")
@@ -1003,6 +1048,8 @@ func _show_match_over(winning_player: int, message: String) -> void:
 	cue_visual.visible = false
 	match_over_label.text = message if selected_mode != EightBallRules.Mode.VS_CPU else ("YOU WIN" if winning_player == 1 else "THE MANOR WINS")
 	match_over_panel.visible = true
+	ai_tactic_label.visible = false
+	tactical_guide.visible = false
 	_update_ui(message)
 
 

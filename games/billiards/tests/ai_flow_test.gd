@@ -13,13 +13,18 @@ func _run() -> void:
 	root.add_child(game)
 	await process_frame
 	game._start_match(EightBallRules.Mode.VS_CPU)
+	game.selected_difficulty = BilliardsAI.Difficulty.HARD
+	game.computer.configure(BilliardsAI.Difficulty.HARD)
 	game.rules.current_player = 2
 	game.current_player = 2
 	game.state = game.GameState.AIMING
-	for frame in 95:
+	for frame in 20:
 		await physics_frame
 	_assert(game.ai_plan.has("direction"), "Computer creates a shot plan")
 	_assert(int(game.ai_plan.get("target", -1)) > 0, "Computer selects a legal object ball")
+	_assert(game.ai_tactic_label.visible, "Computer announces its tactical intent while aiming")
+	for frame in 75:
+		await physics_frame
 	_assert(game.state == game.GameState.ROLLING, "Computer completes its aiming animation and strikes")
 	_assert(game.replay_buffer.shot_start_index > 0, "Computer shots use the replay pipeline")
 	game.queue_free()

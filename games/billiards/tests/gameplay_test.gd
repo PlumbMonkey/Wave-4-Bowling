@@ -18,6 +18,10 @@ func _run() -> void:
 	_test_legal_eight_ball_win()
 	_test_wrong_called_pocket_loses()
 	_test_ai_finds_direct_pot()
+	_test_hard_ai_builds_bank_shot()
+	_test_hard_ai_builds_safety()
+	_test_hard_ai_falls_back_to_safety()
+	_test_hard_ai_scores_position_play()
 	_test_spin_produces_torque()
 	if failures == 0:
 		print("GAMEPLAY TESTS PASSED")
@@ -112,8 +116,49 @@ func _test_ai_finds_direct_pot() -> void:
 	var pockets: Array[Vector3] = [Vector3(4.4, 1.0, 0.0)]
 	var plan := computer.plan_shot(Vector3(-2.8, 1.0, 0.0), ball_positions, [1], pockets)
 	_assert(plan["target"] == 1, "AI selects a legal target")
+	_assert(plan["shot_type"] == "DIRECT", "Clear potting geometry produces a direct shot")
 	_assert(plan["direction"].x > 0.95, "AI aims along a clear potting line")
 	_assert(plan["power"] > 0.2 and plan["power"] <= 1.0, "AI returns playable shot power")
+
+
+func _test_hard_ai_builds_bank_shot() -> void:
+	var computer := AI.new()
+	computer.configure(AI.Difficulty.HARD)
+	var balls := {1: Vector3(0.2, 1.0, 0.15), 9: Vector3(-1.1, 1.0, 1.25)}
+	var pockets: Array[Vector3] = [Vector3(4.18, 1.0, 1.98), Vector3(-4.18, 1.0, -1.98)]
+	var plan := computer.plan_bank_shot(Vector3(-2.8, 1.0, -0.4), balls, [1], pockets)
+	_assert(not plan.is_empty(), "Hard AI finds a one-cushion bank candidate")
+	_assert(plan.get("shot_type", "") == "BANK", "Bank candidate is identified as a bank shot")
+	_assert(plan.has("bank_point"), "Bank shot includes its cushion contact point")
+
+
+func _test_hard_ai_builds_safety() -> void:
+	var computer := AI.new()
+	computer.configure(AI.Difficulty.HARD)
+	var balls := {1: Vector3(0.6, 1.0, 0.2), 9: Vector3(1.8, 1.0, 0.9), 10: Vector3(-0.4, 1.0, -1.1)}
+	var plan := computer.plan_safety_shot(Vector3(-2.7, 1.0, 0.0), balls, [1])
+	_assert(plan["shot_type"] == "SAFETY", "Hard AI can choose a defensive safety")
+	_assert(plan["power"] < 0.5, "Safety uses controlled power")
+	_assert(plan["spin"].y < 0.0, "Safety applies draw to control the cue ball")
+
+
+func _test_hard_ai_falls_back_to_safety() -> void:
+	var computer := AI.new()
+	computer.configure(AI.Difficulty.HARD)
+	var balls := {1: Vector3(0.4, 1.0, 0.1), 9: Vector3(1.1, 1.0, 0.8)}
+	var no_available_pockets: Array[Vector3] = []
+	var plan := computer.plan_shot(Vector3(-2.5, 1.0, 0.0), balls, [1], no_available_pockets)
+	_assert(plan["shot_type"] == "SAFETY", "Hard AI automatically falls back to defense without a pot")
+
+
+func _test_hard_ai_scores_position_play() -> void:
+	var computer := AI.new()
+	computer.configure(AI.Difficulty.HARD)
+	var balls := {1: Vector3(0.7, 1.0, 0.0), 2: Vector3(2.0, 1.0, -0.8)}
+	var pockets: Array[Vector3] = [Vector3(4.18, 1.0, 0.0), Vector3(4.18, 1.0, -1.98)]
+	var plan := computer.plan_shot(Vector3(-2.6, 1.0, 0.0), balls, [1, 2], pockets)
+	_assert(plan.has("position_score"), "Hard AI scores the next cue-ball position")
+	_assert(plan.has("spin"), "Hard AI selects spin for position play")
 
 
 func _test_spin_produces_torque() -> void:
