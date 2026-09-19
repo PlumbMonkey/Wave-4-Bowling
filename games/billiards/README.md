@@ -13,7 +13,10 @@ The current vertical slice is generated procedurally at runtime and includes:
 - an eight-second transform ring buffer with manual and automatic slow-motion replays;
 - velocity-scaled procedural ball and cushion impact audio;
 - a gothic lounge whitebox based on the supplied visual references;
-- basic two-player turn flow, scratches, pocket tracking, and re-racking.
+- Practice Alone, Versus Computer, and Local Two Player modes;
+- eight-ball group assignment, legal-target checking, fouls, scratches, turn continuation, and win/loss evaluation;
+- an AI shot planner with Easy, Medium, and Hard accuracy profiles;
+- pocket tracking, ball-in-hand cue return, and re-racking.
 
 ## Run
 
@@ -25,10 +28,14 @@ Godot_v4.7.2-stable_win64.exe --path <project-folder>
 
 ![First playable preview](docs/first-playable.png)
 
+![Gameplay Core mode selection](docs/gameplay-core.png)
+
 ### Smoke test
 
 ```text
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/smoke_test.gd
+Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/gameplay_test.gd
+Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/ai_flow_test.gd
 ```
 
 ## Controls
@@ -50,10 +57,10 @@ The supplied concept images are preserved under `docs/reference/`. They are visu
 ## Next production passes
 
 1. Replace the procedural room and table with optimized Blender assets.
-2. Complete WPA-style eight-ball rules and ball-in-hand placement.
+2. Add interactive ball-in-hand placement and expand rail/contact edge-case coverage.
 3. Add proper offset striking and full spin/rail-transfer physics.
-4. Record and layer production resin, rubber, roll, ambience, and reverb audio.
-5. Add menus, accessibility settings, AI opponent, save data, and export presets.
-6. Evaluate the optional MIT GIF recorder for shareable highlights after the cinematic state replay is stable.
+4. Expand Hard AI with bank shots, safeties, and cue-ball position planning.
+5. Record and layer production resin, rubber, roll, ambience, and reverb audio.
+6. Add accessibility settings, save data, export presets, and optional GIF highlights.
 
 See `THIRD_PARTY.md` for open-source evaluation and license boundaries.

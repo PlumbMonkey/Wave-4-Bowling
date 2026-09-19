@@ -3,6 +3,8 @@ extends Node3D
 const ReplayBufferClass = preload("res://scripts/replay_buffer.gd")
 const SpectralBallClass = preload("res://scripts/spectral_ball.gd")
 const AimGuideClass = preload("res://scripts/aim_guide.gd")
+const EightBallRulesClass = preload("res://scripts/eight_ball_rules.gd")
+const BilliardsAIClass = preload("res://scripts/ai_opponent.gd")
 
 const TABLE_LENGTH := 8.8
 const TABLE_WIDTH := 4.4
@@ -12,12 +14,14 @@ const BALL_Y := BED_Y + BALL_RADIUS + 0.012
 const STOP_SPEED := 0.035
 const MAX_SHOT_IMPULSE := 4.2
 
-enum GameState { AIMING, ROLLING, REPLAY }
+enum GameState { MENU, AIMING, AI_THINKING, ROLLING, REPLAY, MATCH_OVER }
 
-var state := GameState.AIMING
+var state := GameState.MENU
 var balls: Array[RigidBody3D] = []
 var cue_ball: SpectralBall
 var replay_buffer := ReplayBufferClass.new()
+var rules := EightBallRulesClass.new()
+var computer := BilliardsAIClass.new()
 var aim_guide: AimGuide
 var cue_visual: MeshInstance3D
 var camera: Camera3D
@@ -30,6 +34,13 @@ var settling_frames := 0
 var current_player := 1
 var shot_pocketed := false
 var potted_numbers: Array[int] = []
+var pocket_positions: Array[Vector3] = []
+var selected_mode := EightBallRules.Mode.PRACTICE
+var selected_difficulty := BilliardsAI.Difficulty.MEDIUM
+var ai_plan := {}
+var ai_aim_time := 0.0
+var ai_start_yaw := 0.0
+var ai_target_yaw := 0.0
 
 var replay_frames: Array[Dictionary] = []
 var replay_cursor := 0.0
@@ -41,6 +52,10 @@ var player_label: Label
 var power_bar: ProgressBar
 var replay_badge: Label
 var tip_label: Label
+var menu_panel: PanelContainer
+var difficulty_picker: OptionButton
+var match_over_panel: PanelContainer
+var match_over_label: Label
 var resin_stream: AudioStreamWAV
 var cushion_stream: AudioStreamWAV
 
@@ -54,11 +69,13 @@ func _ready() -> void:
 	_build_camera_and_aiming()
 	_build_ui()
 	_build_audio()
-	_update_ui("Table open — Player 1 to break")
-	get_viewport().get_window().title = "Spectral Manor Billiards — First Playable"
+	_show_mode_menu()
+	get_viewport().get_window().title = "Spectral Manor Billiards — Gameplay Core v0.2"
 
 
 func _physics_process(delta: float) -> void:
+	if state == GameState.MENU or state == GameState.MATCH_OVER:
+		return
 	if state == GameState.REPLAY:
 		_update_replay(delta)
 		return
@@ -66,13 +83,15 @@ func _physics_process(delta: float) -> void:
 	replay_buffer.capture(balls)
 	if state == GameState.AIMING:
 		_update_aiming(delta)
+	elif state == GameState.AI_THINKING:
+		_update_ai_thinking(delta)
 	else:
 		_update_rolling()
 	_update_camera(delta)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and state == GameState.AIMING and not top_down:
+	if event is InputEventMouseMotion and state == GameState.AIMING and not top_down and not _is_computer_turn():
 		camera_yaw -= event.relative.x * 0.0025
 	if event.is_action_pressed("toggle_view"):
 		top_down = not top_down
@@ -84,10 +103,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			_update_ui("Take a shot before requesting a replay")
 	if event.is_action_pressed("reset_rack"):
+		if state == GameState.MENU:
+			return
 		_reset_rack()
 
 
 func _update_aiming(delta: float) -> void:
+	if _is_computer_turn():
+		_begin_ai_turn()
+		return
 	var turn_axis := Input.get_axis("aim_left", "aim_right")
 	camera_yaw -= turn_axis * delta * 1.55
 	var elevation_axis := Input.get_axis("aim_down", "aim_up")
@@ -128,26 +152,34 @@ func _update_rolling() -> void:
 		if not ball.pocketed:
 			ball.linear_velocity = Vector3.ZERO
 			ball.angular_velocity = Vector3.ZERO
+	var result: Dictionary = rules.evaluate_shot()
+	current_player = rules.current_player
 	if cue_ball.pocketed:
 		_respawn_cue_ball()
-		shot_pocketed = false
-		current_player = 2 if current_player == 1 else 1
-	elif not shot_pocketed:
-		current_player = 2 if current_player == 1 else 1
-	state = GameState.AIMING
+	shot_pocketed = false
 	charge = 0.0
 	settling_frames = 0
-	_update_ui("Player %d — line up your shot" % current_player)
+	if int(result["winner"]) > 0:
+		_show_match_over(int(result["winner"]), str(result["message"]))
+		return
+	state = GameState.AIMING
+	_update_ui(str(result["message"]))
 
 
 func _strike(power: float) -> void:
 	if state != GameState.AIMING or cue_ball == null or cue_ball.pocketed:
 		return
+	_strike_direction(_shot_direction(), power)
+
+
+func _strike_direction(direction: Vector3, power: float) -> void:
+	if cue_ball == null or cue_ball.pocketed:
+		return
 	state = GameState.ROLLING
 	shot_pocketed = false
 	settling_frames = 0
+	rules.begin_shot()
 	replay_buffer.mark_shot_start()
-	var direction := _shot_direction()
 	var impulse := direction * lerpf(0.65, MAX_SHOT_IMPULSE, power)
 	impulse.y = clampf(cue_elevation, -0.05, 0.2) * power
 	cue_ball.apply_central_impulse(impulse)
@@ -157,6 +189,42 @@ func _strike(power: float) -> void:
 	aim_guide.visible = false
 	cue_visual.visible = false
 	_update_ui("Shot in motion")
+
+
+func _begin_ai_turn() -> void:
+	if not _is_computer_turn() or state != GameState.AIMING:
+		return
+	var positions := {}
+	for ball in balls:
+		if not ball.pocketed and ball.number > 0:
+			positions[ball.number] = ball.global_position
+	ai_plan = computer.plan_shot(cue_ball.global_position, positions, rules.legal_targets(2), pocket_positions)
+	var direction: Vector3 = ai_plan.get("direction", Vector3.RIGHT)
+	ai_start_yaw = camera_yaw
+	ai_target_yaw = atan2(direction.z, direction.x)
+	ai_aim_time = 0.0
+	state = GameState.AI_THINKING
+	_update_ui("The manor studies the table…")
+
+
+func _update_ai_thinking(delta: float) -> void:
+	ai_aim_time += delta
+	var t := clampf(ai_aim_time / 1.45, 0.0, 1.0)
+	camera_yaw = lerp_angle(ai_start_yaw, ai_target_yaw, t * t * (3.0 - 2.0 * t))
+	var direction := _shot_direction()
+	charge = clampf(float(ai_plan.get("power", 0.45)) * t, 0.0, 1.0)
+	power_bar.value = charge * 100.0
+	aim_guide.visible = true
+	aim_guide.update_guide(cue_ball.global_position, direction, _aim_distance(direction), delta)
+	_update_cue_visual(direction)
+	if t >= 1.0:
+		var planned_direction: Vector3 = ai_plan.get("direction", direction)
+		var planned_power := float(ai_plan.get("power", 0.45))
+		_strike_direction(planned_direction, planned_power)
+
+
+func _is_computer_turn() -> bool:
+	return selected_mode == EightBallRules.Mode.VS_CPU and current_player == 2
 
 
 func _shot_direction() -> Vector3:
@@ -285,6 +353,7 @@ func _on_pocket_body_entered(body: Node, pocket_position: Vector3) -> void:
 	ball.angular_velocity = Vector3.ZERO
 	ball.freeze = true
 	ball.visible = false
+	rules.record_pocket(ball.number)
 	if ball.number > 0:
 		shot_pocketed = true
 		potted_numbers.append(ball.number)
@@ -315,7 +384,8 @@ func _reset_rack() -> void:
 	balls.clear()
 	potted_numbers.clear()
 	replay_buffer.clear()
-	current_player = 1
+	rules.start_match(selected_mode)
+	current_player = rules.current_player
 	state = GameState.AIMING
 	charge = 0.0
 	_build_balls()
@@ -420,14 +490,14 @@ func _build_table() -> void:
 			foot.position = Vector3(x, 0.12, z)
 			add_child(foot)
 
-	var pocket_positions := [
+	pocket_positions.assign([
 		Vector3(-TABLE_LENGTH * 0.5, BALL_Y, -TABLE_WIDTH * 0.5),
 		Vector3(0.0, BALL_Y, -TABLE_WIDTH * 0.5),
 		Vector3(TABLE_LENGTH * 0.5, BALL_Y, -TABLE_WIDTH * 0.5),
 		Vector3(-TABLE_LENGTH * 0.5, BALL_Y, TABLE_WIDTH * 0.5),
 		Vector3(0.0, BALL_Y, TABLE_WIDTH * 0.5),
 		Vector3(TABLE_LENGTH * 0.5, BALL_Y, TABLE_WIDTH * 0.5),
-	]
+	])
 	for pocket_position in pocket_positions:
 		_build_pocket(pocket_position, brass)
 
@@ -533,6 +603,8 @@ func _create_ball(number: int, spawn_position: Vector3, color: Color) -> Spectra
 	add_child(ball)
 	balls.append(ball)
 	ball.impact.connect(_on_ball_impact)
+	if number == 0:
+		ball.contacted_ball.connect(_on_cue_contacted_ball)
 	return ball
 
 
@@ -619,12 +691,122 @@ func _build_ui() -> void:
 	replay_badge.add_theme_color_override("font_color", Color("8fffe3"))
 	canvas.add_child(replay_badge)
 
+	menu_panel = PanelContainer.new()
+	menu_panel.custom_minimum_size = Vector2(460.0, 410.0)
+	menu_panel.set_anchors_preset(Control.PRESET_CENTER)
+	menu_panel.position = Vector2(-230.0, -205.0)
+	canvas.add_child(menu_panel)
+	var menu_margin := MarginContainer.new()
+	menu_margin.add_theme_constant_override("margin_left", 34)
+	menu_margin.add_theme_constant_override("margin_top", 28)
+	menu_margin.add_theme_constant_override("margin_right", 34)
+	menu_margin.add_theme_constant_override("margin_bottom", 28)
+	menu_panel.add_child(menu_margin)
+	var menu_layout := VBoxContainer.new()
+	menu_layout.add_theme_constant_override("separation", 12)
+	menu_margin.add_child(menu_layout)
+	var menu_title := Label.new()
+	menu_title.text = "CHOOSE YOUR TABLE"
+	menu_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	menu_title.add_theme_font_size_override("font_size", 25)
+	menu_title.add_theme_color_override("font_color", Color("d6b875"))
+	menu_layout.add_child(menu_title)
+	var menu_copy := Label.new()
+	menu_copy.text = "The manor is listening. How will you play?"
+	menu_copy.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	menu_copy.add_theme_color_override("font_color", Color("a8c9bf"))
+	menu_layout.add_child(menu_copy)
+	var practice_button := Button.new()
+	practice_button.text = "PRACTICE ALONE"
+	practice_button.pressed.connect(_start_match.bind(EightBallRules.Mode.PRACTICE))
+	menu_layout.add_child(practice_button)
+	var cpu_button := Button.new()
+	cpu_button.text = "VERSUS THE MANOR"
+	cpu_button.pressed.connect(_start_match.bind(EightBallRules.Mode.VS_CPU))
+	menu_layout.add_child(cpu_button)
+	var local_button := Button.new()
+	local_button.text = "LOCAL TWO PLAYER"
+	local_button.pressed.connect(_start_match.bind(EightBallRules.Mode.LOCAL_TWO_PLAYER))
+	menu_layout.add_child(local_button)
+	var difficulty_label := Label.new()
+	difficulty_label.text = "Computer difficulty"
+	difficulty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	menu_layout.add_child(difficulty_label)
+	difficulty_picker = OptionButton.new()
+	difficulty_picker.add_item("Easy — wandering spirit", BilliardsAI.Difficulty.EASY)
+	difficulty_picker.add_item("Medium — manor resident", BilliardsAI.Difficulty.MEDIUM)
+	difficulty_picker.add_item("Hard — table revenant", BilliardsAI.Difficulty.HARD)
+	difficulty_picker.select(1)
+	menu_layout.add_child(difficulty_picker)
+	practice_button.call_deferred("grab_focus")
+
+	match_over_panel = PanelContainer.new()
+	match_over_panel.visible = false
+	match_over_panel.custom_minimum_size = Vector2(440.0, 260.0)
+	match_over_panel.set_anchors_preset(Control.PRESET_CENTER)
+	match_over_panel.position = Vector2(-220.0, -130.0)
+	canvas.add_child(match_over_panel)
+	var over_layout := VBoxContainer.new()
+	over_layout.alignment = BoxContainer.ALIGNMENT_CENTER
+	over_layout.add_theme_constant_override("separation", 18)
+	match_over_panel.add_child(over_layout)
+	match_over_label = Label.new()
+	match_over_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	match_over_label.add_theme_font_size_override("font_size", 25)
+	match_over_label.add_theme_color_override("font_color", Color("d6b875"))
+	over_layout.add_child(match_over_label)
+	var rematch_button := Button.new()
+	rematch_button.text = "REMATCH"
+	rematch_button.pressed.connect(_reset_rack)
+	over_layout.add_child(rematch_button)
+	var menu_button := Button.new()
+	menu_button.text = "CHANGE MODE"
+	menu_button.pressed.connect(_show_mode_menu)
+	over_layout.add_child(menu_button)
+
 
 func _update_ui(message: String) -> void:
 	if status_label == null:
 		return
-	player_label.text = "PLAYER %d" % current_player
+	var actor := "THE MANOR" if _is_computer_turn() else "PLAYER %d" % current_player
+	player_label.text = "%s  •  %s" % [actor, rules.group_name(current_player)]
 	status_label.text = message
+
+
+func _show_mode_menu() -> void:
+	state = GameState.MENU
+	menu_panel.visible = true
+	match_over_panel.visible = false
+	aim_guide.visible = false
+	cue_visual.visible = false
+	camera.global_position = Vector3(0.0, 7.2, 7.4)
+	camera.look_at(Vector3(0.0, BED_Y, 0.0), Vector3.UP)
+	_update_ui("Choose a game mode")
+
+
+func _start_match(mode: EightBallRules.Mode) -> void:
+	selected_mode = mode
+	selected_difficulty = difficulty_picker.get_selected_id() as BilliardsAI.Difficulty
+	computer.configure(selected_difficulty)
+	menu_panel.visible = false
+	match_over_panel.visible = false
+	_reset_rack()
+	match mode:
+		EightBallRules.Mode.PRACTICE:
+			_update_ui("Practice table — play at your own pace")
+		EightBallRules.Mode.VS_CPU:
+			_update_ui("Player 1 breaks against the manor")
+		EightBallRules.Mode.LOCAL_TWO_PLAYER:
+			_update_ui("Local match — Player 1 to break")
+
+
+func _show_match_over(winning_player: int, message: String) -> void:
+	state = GameState.MATCH_OVER
+	aim_guide.visible = false
+	cue_visual.visible = false
+	match_over_label.text = message if selected_mode != EightBallRules.Mode.VS_CPU else ("YOU WIN" if winning_player == 1 else "THE MANOR WINS")
+	match_over_panel.visible = true
+	_update_ui(message)
 
 
 func _build_audio() -> void:
@@ -633,6 +815,8 @@ func _build_audio() -> void:
 
 
 func _on_ball_impact(hit_position: Vector3, intensity: float, cushion: bool) -> void:
+	if cushion and state == GameState.ROLLING:
+		rules.record_rail_contact()
 	if DisplayServer.get_name() == "headless" or intensity < 0.08 or state == GameState.REPLAY:
 		return
 	var player := AudioStreamPlayer3D.new()
@@ -644,6 +828,11 @@ func _on_ball_impact(hit_position: Vector3, intensity: float, cushion: bool) -> 
 	add_child(player)
 	player.finished.connect(player.queue_free)
 	player.play()
+
+
+func _on_cue_contacted_ball(number: int) -> void:
+	if state == GameState.ROLLING:
+		rules.record_first_contact(number)
 
 
 func _make_impact_stream(duration: float, frequency: float, decay: float) -> AudioStreamWAV:

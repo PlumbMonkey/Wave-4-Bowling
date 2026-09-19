@@ -3,5 +3,6 @@
 *.log
 builds/
 exports/
+docs/*.wav
 .DS_Store
 Thumbs.db

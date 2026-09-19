@@ -14,6 +14,8 @@ func _run() -> void:
 	await physics_frame
 	_assert(game.balls.size() == 16, "A regulation rack contains 16 balls")
 	_assert(game.cue_ball != null, "Cue ball exists")
+	game._start_match(EightBallRules.Mode.PRACTICE)
+	await physics_frame
 	_assert(game.replay_buffer.frames.size() > 0, "Replay buffer captures physics state")
 	game._strike(0.5)
 	await physics_frame
