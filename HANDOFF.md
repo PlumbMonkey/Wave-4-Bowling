@@ -11,7 +11,10 @@ The PRD is in `docs/PRD.md`.
 | Project folder + PRD | done |
 | Spectral Manor Lounge (Blender hub) | **first pass done** — see below |
 | ManorNet (P2P + chat) | **first cut working** — tested live between two tabs over Nostr |
-| Phantom Bowling | Phases 1, 3, 4 done; Phase 2 half done (Spectral Lounge + 3 balls). Windows + Web builds in `builds/bowling/`. Sound done (synthesised, `tools/make_sounds.py`; pin acoustics + rack crash rebuilt after playtest 4). Pin sets: Classic, Bone, Reliquary (D-pad up / P). Open: The Crypt + The Void, a lighter web GLB — see `games/bowling/README.md`, PRD in `docs/PRD_PhantomBowling.md` |
+| Phantom Bowling | Phases 1, 3, 4 done; Phase 2 half done (Spectral Lounge + 3 balls). Windows + Web builds in `builds/bowling/`. Sound done (synthesised, `tools/make_sounds.py`; pin acoustics + rack crash rebuilt after playtest 4). Pin sets: Classic, Bone, Reliquary (D-pad up / P).
+**Sound decision (2026-09-18):** Gregg picked the current synthesised mix (the `phantom_bowling_mix2`
+version: dry room, heavy low end, quiet stingers, no swish) as the one to live with. Revisit with real
+recordings - Freesound CC0 / CC-BY only, never non-commercial - only if it stops feeling right in play. Open: The Crypt + The Void, a lighter web GLB — see `games/bowling/README.md`, PRD in `docs/PRD_PhantomBowling.md` |
 | Crypt Putt, Billiards, Hold'em, Links 18 | not started |
 | `site/` shell | not started |
 
