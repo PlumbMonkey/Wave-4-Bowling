@@ -408,6 +408,6 @@ def build():
                                        (0.40, 0.18, 0.80)]),
            "portrait": ghost_portrait(), "banner": banner_pin()}
     out["spectre"] = ball_spectre()
-    out["p"] = ball_p()
+    out["p"] = __import__("bowl_ball_p").ball_p2()      # v2: forged blackletter P (bowl_ball_p.py)
     out["skull"] = skull()
     return out

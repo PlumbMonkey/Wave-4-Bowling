@@ -43,7 +43,7 @@ TEX = {"lane": "BWL_Lane", "approach": "BWL_Approach", "marble": "BWL_Marble",
        "mask": "BWL_MaskArch", "pit": "BWL_PitGlow", "glass_center": "BWL_GlassGhost",
        "glass_side": "BWL_GlassSide", "portrait": "BWL_GhostPortrait", "banner": "BWL_BannerPin",
        "spectre": ("BWL_BallSpectre", "BWL_BallSpectreEmit"),
-       "p": ("BWL_BallP", "BWL_BallPEmit", "BWL_BallPORM"),
+       "p": ("BWL_BallP", "BWL_BallPEmit", "BWL_BallPORM", "BWL_BallPNormal"),
        "skull": ("BWL_Skull", "BWL_SkullEmit")}
 
 
@@ -51,6 +51,9 @@ def textures(bake):
     if bake:
         import bowl_textures
         return bowl_textures.build()
+    if opt("--bake-p"):                     # just the P ball (bowl_ball_p.py)
+        import bowl_ball_p
+        bowl_ball_p.ball_p2()
     out = {}
     for k, v in TEX.items():
         out[k] = tuple(C.load_png(n) for n in v) if isinstance(v, tuple) else C.load_png(v)
@@ -293,3 +296,21 @@ for alley_id, flag, title in (("void", "--void", "The Void"), ("crypt", "--crypt
             continue
         render("BWLCAM_" + cname.capitalize(), os.path.join(renders, "bowl_%s_%s.png" % (alley_id, cname)),
                pct, samples)
+
+
+# -------------------------------------------------------------- pinsetter ---
+if opt("--pinsetter"):
+    wipe_scene()
+    import bowl_alley, bowl_pinsetter as PS
+    tex = textures(False)
+    bowl_alley.build(tex)                            # the Lounge, for the preview
+    c = C.col("PS_Pinsetter")
+    sweep, table, frame = PS.build(c)
+    size = export([o for o in c.all_objects], os.path.join(C.GODOT_ART, "pinsetter", "pinsetter.glb"))
+    print("BOWL exported pinsetter", size)
+    # a preview mid-cycle: the sweep down in front of the pins, the table coming down
+    sweep.location = (0.0, 17.62, 0.13)
+    table.location = (0.0, PS.TABLE_Y, 0.72)
+    preview_setup()
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(C.ROOT, "Phantom Bowling - Pinsetter.blend"))
+    render("BWLCAM_Pins", os.path.join(renders, "bowl_pinsetter.png"), pct, samples)

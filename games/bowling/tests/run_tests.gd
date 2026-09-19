@@ -253,6 +253,55 @@ func _run() -> void:
 	game._apply_pins(false)
 	check(game.audio.sound_set == "", "classic pins play the deep set")
 
+	print("== computer bowler")
+	BowlingBall.pattern = OilPattern.house()
+	var spd := lerpf(BowlingSpec.SPEED_MIN, BowlingSpec.SPEED_MAX, 0.74)
+	var pk := BowlerAI.plan(3, BowlingSpec.pin_spots())
+	var at_head := BowlerAI.x_at(pk.x, pk.aim, spd, pk.spin, -BowlingSpec.LANE_LEN)
+	check(absf(at_head - BowlerAI.POCKET_X) < 0.01, "the computer finds the 1-3 pocket (x %+.3f at the head pin)" % at_head)
+	var ten: Vector3 = BowlingSpec.pin_spots()[6]          # a corner pin alone
+	var sp2 := BowlerAI.plan(3, [ten])
+	var at_pin := BowlerAI.x_at(sp2.x, sp2.aim, lerpf(BowlingSpec.SPEED_MIN, BowlingSpec.SPEED_MAX, sp2.power), sp2.spin, ten.z)
+	check(absf(at_pin - ten.x) < 0.03, "...and lines up a corner-pin spare (x %+.3f vs pin %+.3f)" % [at_pin, ten.x])
+	var perfect_throw := await throw({"x": pk.x, "aim": pk.aim, "power": pk.power, "spin": pk.spin})
+	check(perfect_throw.down >= 9, "its pocket line carries (%d down)" % perfect_throw.down)
+	BowlingSettings.save_value("players", 1)
+	BowlingSettings.save_value("opponent", 2)
+	game.new_game()
+	check(game.players.size() == 2 and game.players[1].ai == 2 and game.players[1].name == "POLTERGEIST",
+		"VS CPU adds a computer bowler after the humans")
+	game.card.roll(10)
+	game._advance()
+	await game.setter.cycle_done
+	check(game.cur_player == 1 and game.is_cpu_turn() and game.state == game.State.AIM, "after your frame the computer is up")
+	var waited := 0
+	while game.state == game.State.AIM and waited < 600:
+		await physics_frame
+		waited += 1
+	check(game.state == game.State.ROLL, "it lines up and throws by itself (%.1f s)" % (waited / 120.0))
+	BowlingSettings.save_value("opponent", 0)
+	game.show_title()
+	game.menus.close()
+
+	# the recorded set: a real strike into a full rack, the synth standing aside
+	BowlingSettings.save_value("pin_sounds", "recorded")
+	game._apply_pins(false)
+	check(game.audio.recorded and game.audio._streams["rec_crash"].size() == 2
+		and game.audio._streams["rec_pinsetter"].size() == 3, "the recorded set loads (2 strikes, 3 pinsetter cycles)")
+	game.new_game()
+	for i in 60:
+		await physics_frame
+	BowlingBall.pattern = OilPattern.house()
+	game.play_remote_throw(rec_a)
+	await game.throw_completed
+	var rec_heard := {}
+	for e in game.audio.events:
+		rec_heard[e[1]] = int(rec_heard.get(e[1], 0)) + 1
+	check(rec_heard.has("rec_crash") and not rec_heard.has("crash"),
+		"with Recorded pin sounds a full-rack hit plays the real strike (%s)" % str(rec_heard))
+	BowlingSettings.save_value("pin_sounds", "auto")
+	game._apply_pins(false)
+
 	print("== pinsetter")
 	game.show_title()
 	game.menus.close()

@@ -164,6 +164,7 @@ func _build_settings() -> void:
 			func(_d: int): _toggle_fullscreen())
 	_option(col, "AIM GUIDE", func(): return "ON" if game.guide_enabled else "OFF",
 		func(_d: int): game.toggle_guide())
+	_option(col, "PIN SOUNDS", func(): return game.pin_sounds_label(), func(d: int): game.cycle_pin_sounds(d))
 	col.add_child(_gap(10))
 	_button(col, "BACK", _back_from_sub)
 
@@ -233,6 +234,7 @@ static func _marks(card: ScoreCard) -> Vector2i:
 ## The setup rows on the title and game-over screens.
 func _game_rows(col: Container, from: String) -> void:
 	_option(col, "PLAYERS", func(): return str(game.player_count()), func(d: int): game.cycle_players(d))
+	_option(col, "VS CPU", func(): return game.opponent_label(), func(d: int): game.cycle_opponent(d))
 	_button(col, "BOWLERS  ·  NAMES & BALLS", func(): _open_sub("bowlers", from))
 	_option(col, "ALLEY", func(): return AlleyTheme.display_name_of(game.alley_id),
 		func(d: int): game.cycle_alley(d))

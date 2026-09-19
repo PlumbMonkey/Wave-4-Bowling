@@ -215,7 +215,7 @@ func set_players(names: Array) -> void:
 		c.queue_free()
 	_rows.clear()
 	var multi := names.size() > 1
-	_board.scale = Vector2.ONE * (0.8 if names.size() > 2 else 1.0)
+	_board.scale = Vector2.ONE * (0.8 if names.size() > 2 else 1.0) * (0.85 if names.size() > 4 else 1.0)
 	for p in names.size():
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 4)

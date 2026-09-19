@@ -15,15 +15,17 @@ const BAR_UP := 1.25            ## hidden behind the masking
 const BAR_DOWN := 0.13
 const TABLE_Z := -18.68         ## over the middle of the pin deck
 const TABLE_UP := 1.35
-const PIN_HANG := 0.406         ## table height minus the base of a pin hanging from it
+const MODEL := "res://art/pinsetter/pinsetter.glb"   ## the Blender machine (bowl_pinsetter.py)
 
 signal cycle_done
 
 var pins: Array[BowlingPin] = []
 var busy := false               ## an animated cycle is running
 var _quiet := 0.0
-var _bar: MeshInstance3D
-var _table: MeshInstance3D
+var _bar: Node3D
+var _table: Node3D
+var _frame: Node3D
+var PIN_HANG := 0.406           ## table height minus the base of a pin hanging from it
 var _cur: Tween
 var _speed := 1.0
 var _cycle := 0                 ## bumps on cancel, so an old cycle stops touching the pins
@@ -41,6 +43,23 @@ func _ready() -> void:
 
 
 func _build_machine() -> void:
+	if ResourceLoader.exists(MODEL):
+		# the modelled machine: sweep, setting table and side frames
+		var inst: Node = (load(MODEL) as PackedScene).instantiate()
+		for n in ["PS_Sweep", "PS_Table", "PS_Frame"]:
+			var part := inst.find_child(n, true, false) as Node3D
+			var xf := part.global_transform if part.is_inside_tree() else part.transform
+			part.get_parent().remove_child(part)
+			add_child(part)
+			part.transform = xf
+			match n:
+				"PS_Sweep": _bar = part
+				"PS_Table": _table = part
+				"PS_Frame": _frame = part
+		inst.free()
+		PIN_HANG = 0.296               # a pin's head sits 85 mm up inside its spotting cup
+		_park()
+		return
 	var iron := StandardMaterial3D.new()
 	iron.albedo_color = Color(0.07, 0.065, 0.08)
 	iron.metallic = 0.75

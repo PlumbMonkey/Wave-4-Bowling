@@ -178,8 +178,17 @@ func _enter_aim() -> void:
 		stance_x = _auto_next.x
 		aim = _auto_next.aim
 		release_spin = _auto_next.spin
+	elif is_cpu_turn():
+		var spots := []
+		for p in setter.standing():
+			spots.append(p.global_position)
+		_auto_next = BowlerAI.plan(int(players[cur_player].ai), spots, _ai_rng)
+		_auto_wait = 2.6                   # time to walk over, line up and pull back
+		release_spin = _auto_next.spin
 	hud.set_power(0.0, false)
 	hud.set_hint(HINT_AIM)
+	if is_cpu_turn():
+		hud.set_hint("%s is lining up...     Start / Esc  Pause" % String(players[cur_player].name))
 	_show_lane()
 	guide.visible = guide_enabled
 	if autoplay and card.current_frame() < 10:
@@ -222,8 +231,11 @@ func _physics_process(delta: float) -> void:
 	_input_block = maxf(0.0, _input_block - delta)
 	match state:
 		State.AIM:
-			_update_aim(delta)
-			if autoplay:
+			var cpu := is_cpu_turn()
+			_update_aim(delta, not autoplay and not cpu)
+			if cpu:
+				_ai_step(delta)
+			elif autoplay:
 				# pull back like a player would, then let go
 				_auto_wait -= delta
 				_key_draw = move_toward(_key_draw, _auto_next.power, delta * 0.9)
@@ -250,7 +262,7 @@ func _physics_process(delta: float) -> void:
 				if _tick * 2 + 1 < inp.size():
 					si = inp[_tick * 2]
 					st = inp[_tick * 2 + 1]
-			elif not autoplay:
+			elif not autoplay and not is_cpu_turn():
 				si = Input.get_axis("spin_left", "spin_right")
 				st = Input.get_axis("steer_left", "steer_right")
 			ball.spin_input = si
@@ -297,7 +309,11 @@ func _physics_process(delta: float) -> void:
 	_update_camera(delta)
 
 
-func _update_aim(delta: float) -> void:
+func _update_aim(delta: float, human := true) -> void:
+	if not human:
+		draw = _key_draw
+		_pose(delta)
+		return
 	_update_stance(delta)
 	aim = clampf(aim + Input.get_axis("aim_left", "aim_right") * deg_to_rad(2.5) * delta,
 		-BowlingSpec.AIM_MAX, BowlingSpec.AIM_MAX)
@@ -316,6 +332,11 @@ func _update_aim(delta: float) -> void:
 	if Input.is_action_pressed("draw_less"):
 		_key_draw = maxf(0.0, _key_draw - delta * 0.9)
 	draw = maxf(maxf(_stick_draw, _mouse_draw), _key_draw)
+	_pose(delta)
+
+
+## The ball in the bowler's hand, the aim guide and the speed readout.
+func _pose(_delta: float) -> void:
 	# the ball swings back and down as it's drawn
 	ball.hold(Vector3(stance_x + 0.22, 0.75 - draw * 0.42, 0.55 + draw * 0.7))
 	var shown := draw if draw > 0.0 else 0.35
@@ -353,7 +374,7 @@ func _update_stance(delta: float) -> void:
 
 
 func _try_release() -> void:
-	if state != State.AIM:
+	if state != State.AIM or is_cpu_turn():
 		return
 	if draw < MIN_DRAW:
 		hud.flash("PULL BACK", BowlingHud.VIOLET, 0.5)
@@ -377,7 +398,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif state == State.RESULT or state == State.REPLAY:
 			_result_t = RESULT_HOLD
 	elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
-			and state == State.AIM:
+			and state == State.AIM and not is_cpu_turn():
 		aim = clampf(aim + event.relative.x * 0.0002, -BowlingSpec.AIM_MAX, BowlingSpec.AIM_MAX)
 		_mouse_draw = clampf(_mouse_draw + event.relative.y / MOUSE_DRAW_PX, 0.0, 1.0)
 	elif event.is_action_pressed("restart"):
@@ -447,7 +468,8 @@ func _advance() -> void:
 		if not autoplay:
 			var top := 0
 			for pl in players:
-				top = maxi(top, (pl.card as ScoreCard).total())
+				if int(pl.ai) == 0:
+					top = maxi(top, (pl.card as ScoreCard).total())
 			hud.flash("FINAL  %d" % card.total() if players.size() == 1 else "GAME OVER",
 				BowlingHud.BRASS, 1.0)
 			var best := int(BowlingSettings.load_all().best)
@@ -510,7 +532,11 @@ func _setup_players() -> void:
 	var n := 1 if autoplay else clampi(int(v.players), 1, MAX_PLAYERS)
 	players.clear()
 	for i in n:
-		players.append({"name": player_name(i), "ball": player_ball(i), "card": ScoreCard.new()})
+		players.append({"name": player_name(i), "ball": player_ball(i), "card": ScoreCard.new(), "ai": 0})
+	var o := 0 if autoplay else opponent()
+	if o > 0:
+		players.append({"name": BowlerAI.NAMES[o], "ball": BowlerAI.BALLS[o], "card": ScoreCard.new(), "ai": o})
+	_ai_rng.randomize()
 	cur_player = 0
 	_turn_frame = 0
 	ball_index = int(players[0].ball)
@@ -657,6 +683,42 @@ func _update_camera(delta: float) -> void:
 	cam.look_at(_cam_look)
 
 
+# --------------------------------------------------------- computer bowler --
+var _ai_rng := RandomNumberGenerator.new()
+
+
+func is_cpu_turn() -> bool:
+	return not players.is_empty() and int(players[cur_player].get("ai", 0)) > 0
+
+
+## Walk to the planned stance, turn to the planned aim, pull back in the last
+## second, and let go.
+func _ai_step(delta: float) -> void:
+	stance_x = move_toward(stance_x, _auto_next.x, 0.7 * delta)
+	aim = move_toward(aim, _auto_next.aim, deg_to_rad(2.0) * delta)
+	_auto_wait -= delta
+	if _auto_wait < 1.1:
+		_key_draw = move_toward(_key_draw, _auto_next.power, delta * 1.2)
+	if _auto_wait <= 0.0:
+		process_throw(_auto_next)
+
+
+func opponent() -> int:
+	return clampi(int(BowlingSettings.load_all().opponent), 0, BowlerAI.LEVELS.size() - 1)
+
+
+func opponent_label() -> String:
+	var o := opponent()
+	return "OFF" if o == 0 else "%s  ·  %s" % [BowlerAI.LEVELS[o], BowlerAI.NAMES[o]]
+
+
+func cycle_opponent(dir: int) -> void:
+	var n := BowlerAI.LEVELS.size()
+	BowlingSettings.save_value("opponent", (opponent() + dir + n) % n)
+	_setup_players()
+	_update_board()
+
+
 func _pressed(action: StringName) -> bool:
 	return _input_block <= 0.0 and Input.is_action_just_pressed(action)
 
@@ -725,6 +787,19 @@ func quality_label() -> String:
 	return "HIGH" if profile == GraphicsProfile.DESKTOP else "LIGHT (web look)"
 
 
+const PIN_SOUND_MODES := ["auto", "deep", "original", "recorded"]
+
+
+func pin_sounds_label() -> String:
+	return String(BowlingSettings.load_all().pin_sounds).to_upper()
+
+
+func cycle_pin_sounds(dir: int) -> void:
+	var m := PIN_SOUND_MODES.find(String(BowlingSettings.load_all().pin_sounds))
+	BowlingSettings.save_value("pin_sounds", PIN_SOUND_MODES[(m + dir + PIN_SOUND_MODES.size()) % PIN_SOUND_MODES.size()])
+	_apply_pins(false)
+
+
 func cycle_quality(_dir: int) -> void:
 	quality = "web" if profile == GraphicsProfile.DESKTOP else "desktop"
 	BowlingSettings.save_value("quality", quality)
@@ -767,8 +842,11 @@ func _apply_pins(announce: bool) -> void:
 	pin_style = BowlingPin.style
 	if theme:
 		theme.set_pin_style(pin_style)
-	# the bone set keeps the original, lighter pin sounds; the others get the deep set
-	audio.sound_set = "bone_" if pin_style == "bone" else ""
+	# pin sounds (Settings): auto = the bone set keeps the original, lighter sounds
+	# and the others get the deep set; or force one; or the recorded strike
+	var mode := String(BowlingSettings.load_all().pin_sounds)
+	audio.recorded = mode == "recorded"
+	audio.sound_set = "bone_" if mode == "original" or (mode != "deep" and pin_style == "bone") else ""
 	audio.pin_pitch = {"reliquary": 1.06}.get(pin_style, 1.0)
 	if announce:
 		audio.play("select", null, -10.0, 0.8)

@@ -51,11 +51,27 @@ fresh rack each turn), the scoreboard shows a row per bowler with the one who's 
 everyone. The single-player `process_throw` / throw-record path is unchanged, so online play can drive it.
 Tests use a scratch settings file (`BowlingSettings.path`), never the player's own.
 
+**VS CPU** (`scripts/bowler_ai.gd`): adds a computer bowler after the humans - Easy "Lost Soul" (assumes the
+house shot), Medium "Poltergeist" (reads this game's oil but not its wear), Hard "The Reaper" (reads the lane
+as it is). It solves its line with `BowlingBall.predict`, then adds human error. Measured first-ball strike
+rates on random worn oil: about 14% / 21% / 64%.
+
 **Between balls** the pinsetter runs (`pinsetter.gd` `animate`): the sweep bar drops and rakes the deadwood
 into the pit, and the table lifts the standing pins (second ball) or sets a fresh rack; A / Enter hurries it.
 
 **Oil** varies more per game (length, slickness, dry back end, crown, and `skew` - one side drier) and breaks
 down faster; a repeated pocket line strikes about a third of the time (`tests/strike_rate.gd` measures it).
+
+**The pinsetter model** (`blender/bowling_tools/bowl_pinsetter.py` -> `art/pinsetter/pinsetter.glb`, headless
+`--pinsetter`): a Brunswick-style sweep (rake board, rubber lip, side arms), setting table (ten spotting cups
+with tongs, lift rods) and low side frames. `pinsetter.gd` animates the sweep and table; without the GLB it
+falls back to plain boxes.
+
+**The Skull ball** uses a CC0 skull by CDmir (OpenGameArt; `blender/assets_src/skull_cc0`, licence file there).
+
+**Recorded pin sounds** (Settings > PIN SOUNDS > RECORDED): Gregg's CC0 Freesound recordings in `audio_src/`,
+cut by `tools/cut_recordings.py` into `audio/rec_crash_*` (a full-rack strike) and `audio/rec_pinsetter_*`.
+AUTO = deep synth, original synth for bone pins; DEEP / ORIGINAL force one.
 
 **Pin sounds:** the default pin contacts have a heavier low end; the bone set keeps the original lighter
 sounds (`audio/bone_*.wav`). `python tools/make_sounds.py --pins` regenerates only the default pin families.

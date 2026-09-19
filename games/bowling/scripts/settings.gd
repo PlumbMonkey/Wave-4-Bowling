@@ -23,7 +23,9 @@ static func load_all() -> Dictionary:
 		"quality": cfg.get_value("play", "quality", "auto"),
 		"fullscreen": cfg.get_value("play", "fullscreen", false),
 		"guide": cfg.get_value("play", "guide", true),
+		"pin_sounds": cfg.get_value("play", "pin_sounds", "auto"),   # auto / deep / original / recorded
 		"players": cfg.get_value("play", "players", 1),
+		"opponent": cfg.get_value("play", "opponent", 0),       # 0 off, 1-3 a computer bowler
 		"names": cfg.get_value("play", "names", ["", "", "", ""]),
 		# each bowler's ball; bowler 1 inherits the single-player choice
 		"balls": cfg.get_value("play", "balls", [cfg.get_value("play", "ball", 0), 1, 2, 0]),

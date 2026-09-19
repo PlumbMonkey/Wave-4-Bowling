@@ -31,6 +31,14 @@ var pin_pitch := 1.0
 ## original, lighter set (kept for the bone pins).
 var sound_set := ""
 const PIN_FAMILIES := ["ball_pin", "pin_pin", "pin_lane", "pin_kick", "pin_pit", "crash"]
+## The recorded set (Settings > Pin sounds > Recorded): a real strike plays when
+## the ball meets a full rack, and a real pinsetter between balls. The synth
+## contacts stand aside while the recording plays; spares keep the synth hits.
+var recorded := false
+const HUSH := 1.6                  ## seconds the synth contacts stay quiet under a recorded strike
+var _hush := 0.0
+var _rack_full := false
+var _rec_played := false
 var events: Array = []           ## [t, name, position, volume_db, pitch] for the current throw
 
 var _streams := {}               ## name -> Array[AudioStream]
@@ -65,6 +73,8 @@ func setup(b: BowlingBall, pins: Array) -> void:
 	_load("crash", _variants("crash", 3))
 	for fam in PIN_FAMILIES:
 		_load("bone_" + fam, _variants("bone_" + fam, _streams[fam].size()))
+	_load("rec_crash", _variants("rec_crash", 2))
+	_load("rec_pinsetter", _variants("rec_pinsetter", 3))
 	for n in ["roll_loop", "gutter_loop", "ambience_loop"]:
 		_loop(n)
 
@@ -180,6 +190,10 @@ func _player3d(stream: AudioStream = null) -> AudioStreamPlayer3D:
 # ------------------------------------------------------------ playback ------
 ## Play a one-shot at a position (or at the listener when pos is null).
 func play(key: String, pos = null, volume_db := 0.0, pitch := 1.0) -> void:
+	if recorded and _hush > 0.0 and PIN_FAMILIES.has(key):
+		return                                   # the recorded strike is carrying the sound
+	if recorded and key == "pinsetter" and not _streams.get("rec_pinsetter", []).is_empty():
+		key = "rec_pinsetter"
 	if sound_set != "" and PIN_FAMILIES.has(key) and not _streams.get(sound_set + key, []).is_empty():
 		key = sound_set + key
 	var list: Array = _streams.get(key, [])
@@ -224,6 +238,12 @@ func _on_ball_contact(body: Node) -> void:
 	if body is BowlingPin:
 		var pin := body as BowlingPin
 		var closing := (ball.linear_velocity - pin.linear_velocity).length()
+		if recorded and _rack_full and not _rec_played and closing > 1.5:
+			# into a full rack: the real thing
+			_rec_played = true
+			play("rec_crash", Vector3(0.0, 0.3, -18.7), _vol(closing, 1.5, 8.0) + 2.0, randf_range(0.97, 1.03))
+			_hush = HUSH
+			return
 		if closing > 0.4 and _pair_ok(ball, pin):
 			play("ball_pin", ball.global_position, _vol(closing, 0.4, 7.0) + 1.0, randf_range(0.94, 1.06) * pin_pitch)
 			if _crash_t < 0.0 and closing > 2.0:
@@ -261,6 +281,7 @@ func _on_pin_contact(body: Node, pin: BowlingPin) -> void:
 func _physics_process(delta: float) -> void:
 	if _recording:
 		_rec_t += delta
+	_hush = maxf(0.0, _hush - delta)
 	if ball == null:
 		return
 	# the roll: on the lane, in the gutter, or in the air / the pit
@@ -301,6 +322,13 @@ func start_throw() -> void:
 	_rec_t = 0.0
 	_pit_done = false
 	_crash_t = -1.0
+	_rec_played = false
+	_hush = 0.0
+	var up := 0
+	for pin in _pins:
+		if (pin as BowlingPin).in_play() and not (pin as BowlingPin).is_down():
+			up += 1
+	_rack_full = up == 10
 
 
 func stop_recording() -> void:
