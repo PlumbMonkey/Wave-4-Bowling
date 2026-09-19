@@ -3,11 +3,14 @@ extends RefCounted
 ## The player's choices, remembered between sessions (user://phantom_bowling.cfg).
 
 const PATH := "user://phantom_bowling.cfg"
+## the file in use; tests point this at a scratch file so they never touch
+## the player's own settings
+static var path := PATH
 
 
 static func load_all() -> Dictionary:
 	var cfg := ConfigFile.new()
-	cfg.load(PATH)          # a missing file just leaves the defaults
+	cfg.load(path)          # a missing file just leaves the defaults
 	return {
 		"ball": cfg.get_value("play", "ball", 0),
 		"pins": cfg.get_value("play", "pins", "classic"),
@@ -20,12 +23,16 @@ static func load_all() -> Dictionary:
 		"quality": cfg.get_value("play", "quality", "auto"),
 		"fullscreen": cfg.get_value("play", "fullscreen", false),
 		"guide": cfg.get_value("play", "guide", true),
+		"players": cfg.get_value("play", "players", 1),
+		"names": cfg.get_value("play", "names", ["", "", "", ""]),
+		# each bowler's ball; bowler 1 inherits the single-player choice
+		"balls": cfg.get_value("play", "balls", [cfg.get_value("play", "ball", 0), 1, 2, 0]),
 		"muted": cfg.get_value("play", "muted", false),
 	}
 
 
 static func save_value(key: String, value: Variant) -> void:
 	var cfg := ConfigFile.new()
-	cfg.load(PATH)
+	cfg.load(path)
 	cfg.set_value("play", key, value)
-	cfg.save(PATH)
+	cfg.save(path)

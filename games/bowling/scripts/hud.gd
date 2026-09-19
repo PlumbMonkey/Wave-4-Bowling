@@ -8,14 +8,15 @@ const ECTO := Color("2bf7a3")
 const VIOLET := Color("8a2be2")
 const INK := Color("e8e0d0")
 
-var _frames: Array = []        # [{marks: Label, total: Label}]
-var _grand: Label
+var _board: VBoxContainer      ## one scoreboard row per bowler
+var _rows: Array = []          # [{frames: [{marks, total, panel}], grand: Label, name: Label, name_sb}]
 var _power: ProgressBar
 var _power_box: Control
 var _lane: Label
 var _msg: Label
 var _hint: Label
 var _ball: Label
+var _bowler: Label              ## whose turn it is (two or more bowlers)
 var _speed: Label
 var _bars: Array[ColorRect] = []
 var _replay_label: Label
@@ -47,15 +48,11 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	var board := HBoxContainer.new()
-	board.position = Vector2(40, 28)
-	board.add_theme_constant_override("separation", 4)
-	root.add_child(board)
-	for i in 10:
-		var cell := _cell(board, 120 if i == 9 else 86, str(i + 1))
-		_frames.append(cell)
-	var t := _cell(board, 110, "TOTAL")
-	_grand = t.total
+	_board = VBoxContainer.new()
+	_board.position = Vector2(40, 28)
+	_board.add_theme_constant_override("separation", 4)
+	root.add_child(_board)
+	set_players(["PLAYER 1"])
 
 	_power_box = VBoxContainer.new()
 	_power_box.position = Vector2(760, 960)
@@ -165,6 +162,12 @@ func _ready() -> void:
 	_ball.position = Vector2(1240, 940)
 	root.add_child(_ball)
 
+	_bowler = _label("", 34, ECTO)
+	_bowler.position = Vector2(1240, 846)
+	_bowler.add_theme_color_override("font_outline_color", Color(0.1, 0.0, 0.2))
+	_bowler.add_theme_constant_override("outline_size", 8)
+	root.add_child(_bowler)
+
 	_hint = _label("", 18, Color(INK, 0.75))
 	_hint.position = Vector2(40, 1010)
 	root.add_child(_hint)
@@ -193,6 +196,7 @@ func _cell(parent: Container, w: int, title: String) -> Dictionary:
 	panel.add_child(v)
 	var head := _label(title, 14, Color(BRASS, 0.9))
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.visible = title != ""          # frame numbers only on the top row
 	v.add_child(head)
 	var marks := _label("", 24, INK)
 	marks.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -203,15 +207,55 @@ func _cell(parent: Container, w: int, title: String) -> Dictionary:
 	return {"marks": marks, "total": total, "panel": sb}
 
 
+## One scoreboard row per bowler; with more than one, each row starts with a
+## name cell. Three or four bowlers shrink the board to fit.
+func set_players(names: Array) -> void:
+	for c in _board.get_children():
+		_board.remove_child(c)
+		c.queue_free()
+	_rows.clear()
+	var multi := names.size() > 1
+	_board.scale = Vector2.ONE * (0.8 if names.size() > 2 else 1.0)
+	for p in names.size():
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		_board.add_child(row)
+		var r := {"frames": [], "name": null, "name_sb": null}
+		if multi:
+			var nc := _cell(row, 190, "BOWLER" if p == 0 else "")
+			nc.marks.text = String(names[p])
+			nc.marks.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			nc.marks.clip_text = true
+			nc.marks.add_theme_font_size_override("font_size", 26)
+			r.name = nc.marks
+			r.name_sb = nc.panel
+		for i in 10:
+			r.frames.append(_cell(row, 120 if i == 9 else 86, str(i + 1) if p == 0 else ""))
+		r.grand = _cell(row, 110, "TOTAL" if p == 0 else "").total
+		_rows.append(r)
+
+
 func update_card(card: ScoreCard) -> void:
-	var fr := card.frames()
-	var cur := card.current_frame()
-	for i in 10:
-		var f: Dictionary = fr[i]
-		_frames[i].marks.text = "  ".join(PackedStringArray(f.marks))
-		_frames[i].total.text = "" if f.cumulative == null else str(f.cumulative)
-		_frames[i].panel.border_color = ECTO if i == cur else Color(BRASS, 0.8)
-	_grand.text = str(card.total())
+	update_cards([card], 0)
+
+
+## Fill every bowler's row; the bowler up now gets the lit name and frame.
+func update_cards(cards: Array, current: int) -> void:
+	for p in mini(cards.size(), _rows.size()):
+		var c: ScoreCard = cards[p]
+		var row: Dictionary = _rows[p]
+		var fr := c.frames()
+		var cur := c.current_frame()
+		for i in 10:
+			var f: Dictionary = fr[i]
+			var cell: Dictionary = row.frames[i]
+			cell.marks.text = "  ".join(PackedStringArray(f.marks))
+			cell.total.text = "" if f.cumulative == null else str(f.cumulative)
+			cell.panel.border_color = ECTO if (p == current and i == cur) else Color(BRASS, 0.8)
+		row.grand.text = str(c.total())
+		if row.name:
+			row.name_sb.border_color = ECTO if p == current else Color(BRASS, 0.8)
+			row.name.add_theme_color_override("font_color", ECTO if p == current else Color(INK, 0.7))
 
 
 func set_power(p: float, shown: bool) -> void:
@@ -225,6 +269,10 @@ func set_lane(text: String) -> void:
 
 func set_ball(text: String) -> void:
 	_ball.text = text
+
+
+func set_bowler(text: String) -> void:
+	_bowler.text = text
 
 
 ## The draw readout under the ball name: speed in mph, or a nudge to pull back.
@@ -245,6 +293,7 @@ func set_replay(on: bool, progress := 0.0) -> void:
 	_replay_bar.size.x = 1920.0 * progress
 	_speed.visible = not on
 	_ball.visible = not on
+	_bowler.visible = not on
 	_lane.visible = not on
 
 

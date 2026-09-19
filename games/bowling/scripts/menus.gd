@@ -17,7 +17,8 @@ var game: Node
 var _screens := {}              ## name -> Control
 var _first := {}                ## name -> the control that takes focus on open
 var _open := ""
-var _settings_back := ""        ## where Back goes from settings
+var _sub_back := ""             ## where Back goes from settings / bowlers
+var _bowler_rows: Array = []    ## [{row, name: LineEdit}]
 var _refresh: Array[Callable] = []   ## option rows re-read their values on open
 var _theme := Theme.new()
 var _best: Label
@@ -35,6 +36,7 @@ func _ready() -> void:
 	_build_pause()
 	_build_settings()
 	_build_over()
+	_build_bowlers()
 	for s in _screens.values():
 		(s as Control).visible = false
 
@@ -53,7 +55,7 @@ func open(screen: String) -> void:
 	_open = screen
 	# the game stops under the pause menu (and settings opened from it); the
 	# title and game-over screens let the alley carry on behind them
-	get_tree().paused = screen == "pause" or (screen == "settings" and _settings_back == "pause")
+	get_tree().paused = screen == "pause" or (screen in ["settings", "bowlers"] and _sub_back == "pause")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if game and game.hud:
 		game.hud.clear_message()
@@ -71,7 +73,7 @@ func close() -> void:
 	for s in _screens.values():
 		(s as Control).visible = false
 	_open = ""
-	_settings_back = ""
+	_sub_back = ""
 	get_tree().paused = false
 	closed.emit()
 
@@ -84,15 +86,15 @@ func _unhandled_input(event: InputEvent) -> void:
 					open("pause")
 			"pause":
 				close()
-			"settings":
-				_back_from_settings()
+			"settings", "bowlers":
+				_back_from_sub()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("ui_cancel") and _open != "":
 		match _open:
 			"pause":
 				close()
-			"settings":
-				_back_from_settings()
+			"settings", "bowlers":
+				_back_from_sub()
 		get_viewport().set_input_as_handled()
 
 
@@ -105,24 +107,20 @@ func _build_title() -> void:
 	shade.size = Vector2(820, 1080)
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	s.add_child(shade)
-	var col := _column(s, Vector2(120, 150))
-	var t1 := _label("PHANTOM", 118, ECTO)
+	var col := _column(s, Vector2(120, 90))
+	var t1 := _label("PHANTOM", 100, ECTO)
 	t1.add_theme_color_override("font_outline_color", Color(0.18, 0.02, 0.32))
 	t1.add_theme_constant_override("outline_size", 22)
 	col.add_child(t1)
-	var t2 := _label("BOWLING", 118, INK)
+	var t2 := _label("BOWLING", 100, INK)
 	t2.add_theme_color_override("font_outline_color", Color(0.18, 0.02, 0.32))
 	t2.add_theme_constant_override("outline_size", 22)
 	col.add_child(t2)
 	col.add_child(_label("SPECTRAL MANOR  ·  WAVE IV", 26, BRASS))
-	col.add_child(_gap(40))
+	col.add_child(_gap(24))
 	var play := _button(col, "BOWL", func(): game.start_from_title())
 	_first["title"] = play
-	_option(col, "ALLEY", func(): return AlleyTheme.display_name_of(game.alley_id),
-		func(d: int): game.cycle_alley(d))
-	_option(col, "PINS", func(): return String(BowlingPin.STYLES[game.pin_style].name),
-		func(d: int): game.cycle_pins(d))
-	_option(col, "BALL", func(): return game.ball_name(), func(d: int): game.cycle_ball(d))
+	_game_rows(col, "title")
 	_button(col, "SETTINGS", func(): _open_settings("title"))
 	if not OS.has_feature("web"):
 		_button(col, "QUIT", func(): get_tree().quit())
@@ -167,14 +165,14 @@ func _build_settings() -> void:
 	_option(col, "AIM GUIDE", func(): return "ON" if game.guide_enabled else "OFF",
 		func(_d: int): game.toggle_guide())
 	col.add_child(_gap(10))
-	_button(col, "BACK", _back_from_settings)
+	_button(col, "BACK", _back_from_sub)
 
 
 func _build_over() -> void:
 	var s := _screen("over", Color(0.01, 0.0, 0.03, 0.66))
-	var col := _column(s, Vector2(680, 110))
+	var col := _column(s, Vector2(680, 60))
 	col.add_child(_label("FINAL SCORE", 34, BRASS))
-	_over_score = _label("0", 160, ECTO)
+	_over_score = _label("0", 130, ECTO)
 	_over_score.add_theme_color_override("font_outline_color", Color(0.18, 0.02, 0.32))
 	_over_score.add_theme_constant_override("outline_size", 24)
 	col.add_child(_over_score)
@@ -185,43 +183,111 @@ func _build_over() -> void:
 	col.add_child(_gap(30))
 	_first["over"] = _button(col, "BOWL AGAIN", func(): close(); game.restart_game())
 	# try something different for the next game without going back to the title
+	_game_rows(col, "over")
+	_button(col, "TITLE", func(): close(); game.show_title())
+
+
+## Fill in and show the game-over screen. *who* is the game's players list
+## ([{name, card}]) or a single ScoreCard.
+func show_over(who: Variant, best_before: int) -> void:
+	var list: Array = [{"name": "", "card": who}] if who is ScoreCard else who
+	var ranked := list.duplicate()
+	ranked.sort_custom(func(a, b): return (a.card as ScoreCard).total() > (b.card as ScoreCard).total())
+	var top := (ranked[0].card as ScoreCard).total()
+	_over_score.text = str(top)
+	if list.size() == 1:
+		if top > best_before:
+			_over_best.text = "NEW BEST GAME!" if best_before > 0 else "FIRST GAME ON THE BOOKS"
+		else:
+			_over_best.text = "BEST  %d" % best_before
+		var st := _marks(list[0].card)
+		_over_stats.text = "STRIKES  %d      SPARES  %d" % [st.x, st.y]
+	else:
+		var tied := ranked.filter(func(p): return (p.card as ScoreCard).total() == top)
+		_over_best.text = "%s WINS!" % String(ranked[0].name) if tied.size() == 1 else "A TIE AT THE TOP!"
+		if top > best_before:
+			_over_best.text += "   NEW BEST GAME!"
+		var lines := []
+		for i in ranked.size():
+			var st := _marks(ranked[i].card)
+			lines.append("%d.  %-12s  %3d      X %d   / %d" % [i + 1, String(ranked[i].name),
+				(ranked[i].card as ScoreCard).total(), st.x, st.y])
+		_over_stats.text = "\n".join(lines)
+	if game and game.hud:
+		game.hud.visible = false       # the standings replace the scoreboard
+	open("over")
+
+
+## (strikes, spares) on a card.
+static func _marks(card: ScoreCard) -> Vector2i:
+	var out := Vector2i.ZERO
+	for f in card.frames():
+		for m in f.marks:
+			if m == "X":
+				out.x += 1
+			elif m == "/":
+				out.y += 1
+	return out
+
+
+## The setup rows on the title and game-over screens.
+func _game_rows(col: Container, from: String) -> void:
+	_option(col, "PLAYERS", func(): return str(game.player_count()), func(d: int): game.cycle_players(d))
+	_button(col, "BOWLERS  ·  NAMES & BALLS", func(): _open_sub("bowlers", from))
 	_option(col, "ALLEY", func(): return AlleyTheme.display_name_of(game.alley_id),
 		func(d: int): game.cycle_alley(d))
 	_option(col, "PINS", func(): return String(BowlingPin.STYLES[game.pin_style].name),
 		func(d: int): game.cycle_pins(d))
-	_option(col, "BALL", func(): return game.ball_name(), func(d: int): game.cycle_ball(d))
-	_button(col, "TITLE", func(): close(); game.show_title())
 
 
-## Fill in and show the game-over screen.
-func show_over(card: ScoreCard, best_before: int) -> void:
-	var total := card.total()
-	_over_score.text = str(total)
-	if total > best_before:
-		_over_best.text = "NEW BEST GAME!" if best_before > 0 else "FIRST GAME ON THE BOOKS"
-	else:
-		_over_best.text = "BEST  %d" % best_before
-	var strikes := 0
-	var spares := 0
-	for f in card.frames():
-		for m in f.marks:
-			if m == "X":
-				strikes += 1
-			elif m == "/":
-				spares += 1
-	_over_stats.text = "STRIKES  %d      SPARES  %d" % [strikes, spares]
-	open("over")
+func _build_bowlers() -> void:
+	var s := _screen("bowlers", Color(0.01, 0.0, 0.03, 0.82))
+	var col := _column(s, Vector2(420, 170))
+	col.add_child(_label("BOWLERS", 64, ECTO))
+	col.add_child(_label("Type a name (keyboard), pick a ball with ◀ ▶", 22, Color(INK, 0.6)))
+	col.add_child(_gap(10))
+	for i in 4:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 16)
+		col.add_child(row)
+		var num := _label(str(i + 1), 40, BRASS)
+		num.custom_minimum_size = Vector2(40, 0)
+		row.add_child(num)
+		var name_edit := LineEdit.new()
+		name_edit.max_length = 12
+		name_edit.custom_minimum_size = Vector2(340, 58)
+		name_edit.placeholder_text = "PLAYER %d" % (i + 1)
+		name_edit.text_changed.connect(func(t: String): game.set_player_name(i, t))
+		row.add_child(name_edit)
+		_option(row, "BALL", func(): return game.ball_name_of(i),
+			func(d: int): game.cycle_player_ball(i, d), 520)
+		_bowler_rows.append({"row": row, "name": name_edit})
+		if i == 0:
+			_first["bowlers"] = name_edit
+	col.add_child(_gap(10))
+	_button(col, "BACK", _back_from_sub)
+	# only the bowlers in this game are shown
+	_refresh.append(func():
+		var names: Array = BowlingSettings.load_all().names
+		for i in _bowler_rows.size():
+			var r: Dictionary = _bowler_rows[i]
+			(r.row as Control).visible = i < game.player_count()
+			(r.name as LineEdit).text = String(names[i]) if i < names.size() else "")
 
 
 # ---------------------------------------------------------------- settings --
 func _open_settings(from: String) -> void:
-	_settings_back = from
-	open("settings")
+	_open_sub("settings", from)
 
 
-func _back_from_settings() -> void:
-	var to := _settings_back
-	_settings_back = ""
+func _open_sub(screen: String, from: String) -> void:
+	_sub_back = from
+	open(screen)
+
+
+func _back_from_sub() -> void:
+	var to := _sub_back
+	_sub_back = ""
 	open(to if to != "" else "pause")
 
 
@@ -289,9 +355,9 @@ func _button(parent: Container, text: String, action: Callable) -> Button:
 
 
 ## A row that cycles a value: A / click / right steps forward, left steps back.
-func _option(parent: Container, title: String, value: Callable, step: Callable) -> Button:
+func _option(parent: Container, title: String, value: Callable, step: Callable, w := 560) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(560, 58)
+	b.custom_minimum_size = Vector2(w, 58)
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	var redraw := func(): b.text = "%s      ◀  %s  ▶" % [title, str(value.call())]
 	redraw.call()
@@ -385,6 +451,12 @@ func _build_theme() -> void:
 	sfocus.border_color = ECTO
 	sfocus.set_border_width_all(2)
 	sfocus.set_expand_margin_all(6)
+	_theme.set_stylebox("normal", "LineEdit", normal)
+	_theme.set_stylebox("focus", "LineEdit", focus)
+	_theme.set_font_size("font_size", "LineEdit", 30)
+	_theme.set_color("font_color", "LineEdit", ECTO)
+	_theme.set_color("font_placeholder_color", "LineEdit", Color(INK, 0.4))
+	_theme.set_color("caret_color", "LineEdit", ECTO)
 	_theme.set_stylebox("slider", "HSlider", track)
 	_theme.set_stylebox("grabber_area", "HSlider", fill)
 	_theme.set_stylebox("grabber_area_highlight", "HSlider", fill)

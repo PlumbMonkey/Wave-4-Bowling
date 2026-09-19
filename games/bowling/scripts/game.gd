@@ -47,7 +47,12 @@ var alley_id := "lounge"
 var ball_kinds := ["spectre", "p", "skull"]
 var ball_index := 0
 var pin_style := "classic"
-var card := ScoreCard.new()
+var card := ScoreCard.new()        ## the card of the bowler who's up
+## Local multiplayer: [{name, ball, card}], bowling a frame each in turn.
+var players: Array[Dictionary] = []
+var cur_player := 0
+var _turn_frame := 0               ## the frame the current bowler started this turn on
+const MAX_PLAYERS := 4
 
 var state := State.AIM
 var stance_x := BowlingSpec.board_x(12)
@@ -147,7 +152,8 @@ func _ready() -> void:
 
 func new_game() -> void:
 	ball.visible = true
-	card = ScoreCard.new()
+	_setup_players()
+	card = players[0].card
 	if autoplay:
 		_lane_rng.seed = 11
 	else:
@@ -155,7 +161,7 @@ func new_game() -> void:
 	BowlingBall.pattern = OilPattern.random(_lane_rng)
 	setter.full_rack()
 	_standing_before = 10
-	hud.update_card(card)
+	_update_board()
 	hud.set_replay(false)
 	_enter_aim()
 
@@ -178,6 +184,7 @@ func _enter_aim() -> void:
 	guide.visible = guide_enabled
 	if autoplay and card.current_frame() < 10:
 		ball_index = card.current_frame() % ball_kinds.size()      # show off every ball
+		players[cur_player].ball = ball_index
 		_apply_ball()
 	_snap_camera()
 
@@ -380,7 +387,7 @@ func _finish_roll() -> void:
 	var standing_now := setter.standing().size()
 	var pins := clampi(_standing_before - standing_now, 0, _standing_before)
 	card.roll(pins)
-	hud.update_card(card)
+	_update_board()
 	BowlingBall.pattern.wear_path(_ball_path())
 	throw_completed.emit({"v": 1, "params": _last_params.duplicate(), "inputs": _inputs.duplicate(),
 		"pins": pins, "ball_end": ball.global_position})
@@ -427,19 +434,25 @@ func _start_replay() -> void:
 
 ## After the result (and any replay): next ball, next frame, or game over.
 func _advance() -> void:
-	if card.is_complete():
+	var turn_over := card.is_complete() or card.current_frame() != _turn_frame
+	var next := _next_player() if turn_over else cur_player
+	if next < 0:
 		state = State.GAME_OVER
 		audio.play("final", null, -18.0)
 		hud.set_hint("")
 		guide.visible = false
 		if not autoplay:
-			hud.flash("FINAL  %d" % card.total(), BowlingHud.BRASS, 1.0)
+			var top := 0
+			for pl in players:
+				top = maxi(top, (pl.card as ScoreCard).total())
+			hud.flash("FINAL  %d" % card.total() if players.size() == 1 else "GAME OVER",
+				BowlingHud.BRASS, 1.0)
 			var best := int(BowlingSettings.load_all().best)
-			if card.total() > best:
-				BowlingSettings.save_value("best", card.total())
+			if top > best:
+				BowlingSettings.save_value("best", top)
 			await get_tree().create_timer(1.6, false).timeout     # waits while paused
 			if state == State.GAME_OVER and not menus.is_open():
-				menus.show_over(card, best)
+				menus.show_over(players, best)
 			return
 		hud.flash("FINAL  %d" % card.total(), BowlingHud.BRASS, 60.0)
 		if autoplay:
@@ -451,11 +464,113 @@ func _advance() -> void:
 				new_game()
 		return
 	audio.play("pinsetter", Vector3(0.0, 0.9, -19.0), -7.0)
-	if card.needs_full_rack():
+	if turn_over:
+		_start_turn(next)
+		setter.full_rack()
+	elif card.needs_full_rack():
 		setter.full_rack()
 	else:
 		setter.clear_deadwood()
 	_enter_aim()
+
+
+## The next bowler with frames left to bowl, after the current one (the same one
+## when bowling alone), or -1 when everyone has finished.
+func _next_player() -> int:
+	for k in range(1, players.size() + 1):
+		var i := (cur_player + k) % players.size()
+		if not (players[i].card as ScoreCard).is_complete():
+			return i
+	return -1
+
+
+## Hand the lane to bowler *i*: their card, their ball, and a call to step up.
+func _start_turn(i: int) -> void:
+	var changed := i != cur_player
+	cur_player = i
+	card = players[i].card
+	_turn_frame = card.current_frame()
+	if changed:
+		ball_index = int(players[i].ball)
+		_apply_ball()
+		hud.flash("%s  UP" % String(players[i].name), BowlingHud.ECTO, 1.1)
+		audio.play("select", null, -12.0, 0.7)
+	_update_board()
+
+
+## Build the bowlers from the saved setup (autoplay always bowls alone).
+func _setup_players() -> void:
+	var v := BowlingSettings.load_all()
+	var n := 1 if autoplay else clampi(int(v.players), 1, MAX_PLAYERS)
+	players.clear()
+	for i in n:
+		players.append({"name": player_name(i), "ball": player_ball(i), "card": ScoreCard.new()})
+	cur_player = 0
+	_turn_frame = 0
+	ball_index = int(players[0].ball)
+	var names := []
+	for pl in players:
+		names.append(pl.name)
+	hud.set_players(names)
+	_apply_ball()
+
+
+func _update_board() -> void:
+	var cards := []
+	for pl in players:
+		cards.append(pl.card)
+	hud.update_cards(cards, cur_player)
+
+
+# ------------------------------------------------------------- the bowlers --
+func player_count() -> int:
+	return clampi(int(BowlingSettings.load_all().players), 1, MAX_PLAYERS)
+
+
+func cycle_players(dir: int) -> void:
+	var n := (player_count() - 1 + dir + MAX_PLAYERS) % MAX_PLAYERS + 1
+	BowlingSettings.save_value("players", n)
+	_setup_players()
+	_update_board()
+
+
+func player_name(i: int) -> String:
+	var names: Array = BowlingSettings.load_all().names
+	var n := String(names[i]).strip_edges() if i < names.size() else ""
+	return n if n != "" else "PLAYER %d" % (i + 1)
+
+
+func set_player_name(i: int, n: String) -> void:
+	var names: Array = BowlingSettings.load_all().names.duplicate()
+	while names.size() <= i:
+		names.append("")
+	names[i] = n.strip_edges().left(12)
+	BowlingSettings.save_value("names", names)
+	if i < players.size():
+		players[i].name = player_name(i)
+
+
+func player_ball(i: int) -> int:
+	var balls: Array = BowlingSettings.load_all().balls
+	return clampi(int(balls[i]) if i < balls.size() else i % ball_kinds.size(), 0, ball_kinds.size() - 1)
+
+
+func cycle_player_ball(i: int, dir: int) -> void:
+	var balls: Array = BowlingSettings.load_all().balls.duplicate()
+	while balls.size() <= i:
+		balls.append(balls.size() % ball_kinds.size())
+	balls[i] = (int(balls[i]) + dir + ball_kinds.size()) % ball_kinds.size()
+	BowlingSettings.save_value("balls", balls)
+	if i < players.size():
+		players[i].ball = balls[i]
+	if i == cur_player:
+		ball_index = balls[i]
+		_apply_ball()
+
+
+func ball_name_of(i: int) -> String:
+	var k: String = ball_kinds[player_ball(i)]
+	return BowlingBall.SKINS[k].name if BowlingBall.SKINS.has(k) else "House ball"
 
 
 func _announce(pins: int, standing_now: int) -> void:
@@ -544,8 +659,9 @@ func show_title() -> void:
 		replay.finish()
 		hud.set_replay(false)
 	state = State.TITLE
-	card = ScoreCard.new()
-	hud.update_card(card)
+	_setup_players()
+	card = players[0].card
+	_update_board()
 	hud.visible = false
 	guide.visible = false
 	setter.full_rack()
@@ -587,9 +703,7 @@ func cycle_pins(dir: int, announce := false) -> void:
 
 
 func cycle_ball(dir: int) -> void:
-	ball_index = (ball_index + dir + ball_kinds.size()) % ball_kinds.size()
-	_apply_ball()
-	BowlingSettings.save_value("ball", ball_index)
+	cycle_player_ball(cur_player, dir)
 
 
 func ball_name() -> String:
@@ -653,6 +767,7 @@ func _apply_pins(announce: bool) -> void:
 func _apply_ball() -> void:
 	var n := ball.set_skin(ball_kinds[ball_index])
 	var where := "   ·   PINS  %s" % BowlingPin.STYLES[pin_style].name
+	hud.set_bowler("%s  UP" % String(players[cur_player].name) if players.size() > 1 else "")
 	where += ("   ·   " + theme.display_name()) if theme else ""
 	if profile == GraphicsProfile.WEB:
 		where += "   ·   web"

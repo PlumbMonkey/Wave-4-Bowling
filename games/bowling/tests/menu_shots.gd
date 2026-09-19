@@ -6,6 +6,9 @@ var out := "user://menu_shots"
 
 
 func _initialize() -> void:
+	# a scratch settings file, so the player's own (best score, bowlers...) are never touched
+	BowlingSettings.path = "user://test_settings.cfg"
+	DirAccess.remove_absolute(BowlingSettings.path)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="):
 			out = a.trim_prefix("--out=")
@@ -22,11 +25,16 @@ func _snap(tag: String, frames := 30) -> void:
 
 
 func _run() -> void:
+	var saved := BowlingSettings.load_all()
+	BowlingSettings.save_value("players", 2)
+	BowlingSettings.save_value("names", ["WRAITH", "BANSHEE", "", ""])
 	var game: Node = (load("res://scenes/main.tscn") as PackedScene).instantiate()
 	root.add_child(game)
 	await _snap("1_title", 90)
 	game.menus._open_settings("title")
 	await _snap("2_settings")
+	game.menus._open_sub("bowlers", "title")
+	await _snap("2b_bowlers")
 	game.start_from_title()
 	await _snap("3_aim", 40)
 	game.menus.open("pause")
@@ -37,9 +45,15 @@ func _run() -> void:
 		await _snap("5_callout_" + k[0], 40)
 		for i in 120:
 			await process_frame
-	var c := ScoreCard.new()
 	for r in [10, 7, 3, 9, 0, 10, 0, 8, 8, 2, 0, 6, 10, 10, 10, 8, 1]:
-		c.roll(r)
-	game.menus.show_over(c, 150)
+		game.players[0].card.roll(r)
+	for r in [9, 1, 10, 7, 2, 10, 10, 6, 3, 8, 1, 9, 0, 7, 3, 10, 9, 0]:
+		game.players[1].card.roll(r)
+	game.cur_player = 1
+	game._update_board()
+	await _snap("5b_board", 20)
+	game.menus.show_over(game.players, 150)
 	await _snap("6_over")
+	for k in ["players", "names"]:
+		BowlingSettings.save_value(k, saved[k])
 	quit()

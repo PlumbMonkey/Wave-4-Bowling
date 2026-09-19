@@ -45,6 +45,12 @@ the web build), fullscreen, aim guide on/off. Game over shows the score, strikes
 game. Everything is saved in `user://phantom_bowling.cfg`. Pad: D-pad / left stick to move, A select,
 ◀ ▶ to change a value, B back. `tests/menu_shots.gd` screenshots every screen.
 
+**Local multiplayer (1-4 bowlers, hot seat):** set PLAYERS on the title or game-over screen, and names
+and a ball per bowler under BOWLERS. Frames alternate as in real bowling (each bowler bowls a whole frame,
+fresh rack each turn), the scoreboard shows a row per bowler with the one who's up lit, and game over ranks
+everyone. The single-player `process_throw` / throw-record path is unchanged, so online play can drive it.
+Tests use a scratch settings file (`BowlingSettings.path`), never the player's own.
+
 **Painted call-outs:** drop `strike.png`, `spare.png`, `miss.png` or `gutter.png` into `art/callouts/`
 (transparent, about 2:1; see the README there) and it replaces the text for that result.
 

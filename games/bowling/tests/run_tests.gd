@@ -6,6 +6,9 @@ var failures := 0
 
 
 func _initialize() -> void:
+	# a scratch settings file, so the player's own (best score, bowlers...) are never touched
+	BowlingSettings.path = "user://test_settings.cfg"
+	DirAccess.remove_absolute(BowlingSettings.path)
 	# a script error kills the coroutine silently - never hang the shell
 	create_timer(150.0).timeout.connect(func():
 		print("TIMEOUT - a test coroutine died (see script errors above)")
@@ -205,6 +208,41 @@ func _run() -> void:
 		game._update_stance(1.0 / 120.0)
 	check(first_step > 0.0 and first_step < cruising * 0.2 and cruising > 0.8 and absf(game._stance_v) < 0.01
 		and game.stance_x > 0.2, "the ball eases across the approach and eases to a stop (%.2f m)" % game.stance_x)
+
+	print("== two players")
+	var saved := BowlingSettings.load_all()
+	BowlingSettings.save_value("players", 2)
+	BowlingSettings.save_value("names", ["WRAITH", "", "", ""])
+	BowlingSettings.save_value("balls", [2, 0, 1, 0])
+	game.new_game()
+	check(game.players.size() == 2 and game.players[0].name == "WRAITH" and game.players[1].name == "PLAYER 2",
+		"two bowlers, named or defaulted")
+	check(game.ball.skin == "skull", "bowler 1 steps up with their own ball")
+	var order := []
+	var step := func(pins: int):
+		order.append(game.cur_player)
+		game.card.roll(pins)
+		game._advance()
+	step.call(10)                 # WRAITH strikes: frame over, P2 is up
+	check(game.cur_player == 1 and game.ball.skin == "spectre", "after a strike the other bowler is up, with their ball")
+	step.call(3)                  # P2 leaves 7 standing: still their frame
+	check(game.cur_player == 1, "a second ball stays with the same bowler")
+	step.call(4)
+	check(game.cur_player == 0, "an open frame hands the lane back")
+	# play the rest out: gutter balls, until the game ends
+	var guard := 0
+	while game.state != game.State.GAME_OVER and guard < 60:
+		step.call(0)
+		guard += 1
+	check(game.state == game.State.GAME_OVER and game.players.all(func(p): return p.card.is_complete()),
+		"the game ends when both cards are complete (%d balls)" % order.size())
+	check(order.slice(0, 7) == [0, 1, 1, 0, 0, 1, 1], "frames alternate between the bowlers")
+	game.menus.show_over(game.players, 999)
+	check(game.menus._over_best.text == "WRAITH WINS!" and game.menus._over_stats.text.begins_with("1.  WRAITH"),
+		"game over names the winner and ranks the bowlers")
+	game.menus.close()
+	for k in ["players", "names", "balls", "best"]:
+		BowlingSettings.save_value(k, saved[k])
 	game.show_title()
 	check(game.state == game.State.TITLE and not game.ball.visible, "quit to title hides the ball and opens the title")
 	game.menus.close()
