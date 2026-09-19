@@ -24,6 +24,16 @@ var _msg_tween: Tween
 var _art: TextureRect           ## a painted call-out, when there is one
 var _art_tween: Tween
 var _art_cache := {}
+var _call: Label                ## the text call-out, until the painted art arrives
+var _call_haze: Label           ## a purple haze behind it
+var _call_tween: Tween
+
+## Creepy glowing baby blue with a hint of purple. Comic Sans comes from the
+## player's own system (it can't be shipped in the game), so the web build and
+## other systems fall back to the next font on the list.
+const CALL_BLUE := Color(0.62, 0.88, 1.0)
+const CALL_EDGE := Color(0.34, 0.12, 0.62)
+const CALL_FONTS := ["Comic Sans MS", "Comic Neue", "Chalkboard SE", "Chalkboard"]
 
 ## Painted call-outs: drop art/callouts/<kind>.png into the project (transparent
 ## PNG, roughly 2:1) and it replaces the text for that result.
@@ -80,6 +90,42 @@ func _ready() -> void:
 	_msg.add_theme_color_override("font_outline_color", Color(0.1, 0.0, 0.2))
 	_msg.add_theme_constant_override("outline_size", 16)
 	_msg.modulate.a = 0.0
+
+	var font := SystemFont.new()
+	font.font_names = PackedStringArray(CALL_FONTS)
+	font.font_weight = 700
+	var haze := LabelSettings.new()
+	haze.font = font
+	haze.font_size = 150
+	haze.font_color = Color(0.55, 0.30, 1.0, 0.0)
+	haze.outline_size = 44
+	haze.outline_color = Color(0.58, 0.34, 1.0, 0.13)
+	haze.shadow_size = 0
+	haze.shadow_color = Color(0, 0, 0, 0)
+	haze.shadow_offset = Vector2.ZERO
+	var main := LabelSettings.new()
+	main.font = font
+	main.font_size = 150
+	main.font_color = CALL_BLUE
+	main.outline_size = 16
+	main.outline_color = CALL_EDGE
+	main.shadow_size = 26
+	main.shadow_color = Color(0.45, 0.80, 1.0, 0.30)
+	main.shadow_offset = Vector2.ZERO
+	for pair in [["haze", haze], ["main", main]]:
+		var l := Label.new()
+		l.label_settings = pair[1]
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(l)
+		l.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		l.pivot_offset = Vector2(960, 480)
+		l.modulate.a = 0.0
+		if pair[0] == "haze":
+			_call_haze = l
+		else:
+			_call = l
 
 	_art = TextureRect.new()
 	_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -230,7 +276,7 @@ func callout_art(kind: String) -> Texture2D:
 func callout(kind: String, text: String, color := ECTO, hold := 1.2) -> void:
 	var tex := callout_art(kind)
 	if tex == null:
-		flash(text, color, hold)
+		_text_callout(text, hold)
 		return
 	if _art_tween:
 		_art_tween.kill()
@@ -261,3 +307,36 @@ func clear_message() -> void:
 		_art_tween.kill()
 	_msg.modulate.a = 0.0
 	_art.visible = false
+	if _call_tween:
+		_call_tween.kill()
+	_call.modulate.a = 0.0
+	_call_haze.modulate.a = 0.0
+
+
+## The text call-out: it flickers on like a failing tube, breathes and drifts
+## up a little, then fades.
+func _text_callout(text: String, hold: float) -> void:
+	if _call_tween:
+		_call_tween.kill()
+	_msg.modulate.a = 0.0
+	for l in [_call, _call_haze]:
+		l.text = text
+		l.modulate.a = 0.0
+		l.position.y = 0.0
+		l.scale = Vector2.ONE * 1.08
+		l.rotation = deg_to_rad(randf_range(-2.5, 2.5))
+	var tw := create_tween().set_parallel(true)
+	_call_tween = tw
+	var flick := [1.0, 0.15, 0.9, 0.35, 1.0]
+	for i in flick.size():
+		for l in [_call, _call_haze]:
+			tw.tween_property(l, "modulate:a", flick[i], 0.05).set_delay(i * 0.05)
+	for l in [_call, _call_haze]:
+		tw.tween_property(l, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK) 			.set_ease(Tween.EASE_OUT)
+		tw.tween_property(l, "position:y", -26.0, hold + 0.6).set_delay(0.25) 			.set_trans(Tween.TRANS_SINE)
+	# the haze breathes while it hangs there
+	var breaths := int(hold / 0.25) - 1
+	for b in breaths:
+		tw.tween_property(_call_haze, "modulate:a", 0.45 if b % 2 == 0 else 1.0, 0.25) 			.set_delay(0.3 + b * 0.25)
+	for l in [_call, _call_haze]:
+		tw.tween_property(l, "modulate:a", 0.0, 0.45).set_delay(0.3 + hold)

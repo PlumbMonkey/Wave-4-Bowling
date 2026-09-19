@@ -32,8 +32,11 @@ func _run() -> void:
 	game.menus.open("pause")
 	await _snap("4_pause")
 	game.menus.close()
-	game.hud.callout("strike", "STRIKE!")
-	await _snap("5_callout", 12)
+	for k in [["strike", "STRIKE!"], ["spare", "SPARE!"], ["gutter", "GUTTER"], ["miss", "MISS"]]:
+		game.hud.callout(k[0], k[1])
+		await _snap("5_callout_" + k[0], 40)
+		for i in 120:
+			await process_frame
 	var c := ScoreCard.new()
 	for r in [10, 7, 3, 9, 0, 10, 0, 8, 8, 2, 0, 6, 10, 10, 10, 8, 1]:
 		c.roll(r)
