@@ -8,7 +8,7 @@ The current vertical slice is generated procedurally at runtime and includes:
 
 - a complete 16-ball rack with six functional pockets;
 - built-in Jolt rigid-body physics on Godot 4.7;
-- gamepad-first aiming, charging, striking, tactical camera, and replay controls;
+- gamepad-first camera, cue-ball placement, pull/push striking, tactical view, and replay controls;
 - mouse and keyboard fallback controls;
 - an eight-second transform ring buffer with manual and automatic slow-motion replays;
 - velocity-scaled procedural ball and cushion impact audio;
@@ -19,7 +19,11 @@ The current vertical slice is generated procedurally at runtime and includes:
 - Hard AI one-cushion banks, defensive safeties, and next-shot position scoring;
 - visible computer tactical intent and a spectral bank-path guide;
 - interactive human and strategic computer ball-in-hand placement;
-- right-stick/arrow-key top, draw, and side English with physical torque;
+- camera-relative, velocity-smoothed cue-ball placement with the left stick;
+- right-stick orbit and elevation camera control;
+- hold-RT pull-back/push-forward analog cue strokes with motion-based power;
+- optional solid light-blue cue/object-ball trajectory guidance;
+- D-pad/arrow-key top, draw, and side English with physical torque;
 - legal-break validation with distinct rail-contact counting;
 - called-pocket eight-ball play and eight-on-break respotting;
 - pocket tracking and re-racking.
@@ -40,6 +44,8 @@ Godot_v4.7.2-stable_win64.exe --path <project-folder>
 
 ![Tactical AI v0.4](docs/tactical-ai.png)
 
+![Controller and trajectory guidance v0.5](docs/controller-guidance.png)
+
 ### Smoke test
 
 ```text
@@ -47,17 +53,20 @@ Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --scrip
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/gameplay_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/ai_flow_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/ball_control_test.gd
+Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/menu_input_test.gd
+Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/control_scheme_test.gd
 ```
 
 ## Controls
 
 | Action | Xbox controller | Keyboard / mouse |
 | --- | --- | --- |
-| Aim around table | Left stick | A/D or move mouse |
-| Apply English | Right stick | Arrow keys |
-| Build power | Right trigger | Hold Space or right mouse |
-| Strike | Right bumper | Enter or left mouse |
+| Orbit / tilt camera | Right stick | A/D or move mouse |
+| Apply English | D-pad | Arrow keys |
+| Analog cue stroke | Hold RT, pull right stick back, then push forward | Hold Space/right mouse, release to strike |
+| Quick strike / place | Right bumper | Enter or left mouse |
 | Place cue ball | Left stick, then right bumper | WASD, then Enter or left mouse |
+| Toggle shot guide | Left bumper | G |
 | Call eight-ball pocket | B | C |
 | Tactical view | Y | T |
 | Replay last shot | X | R |

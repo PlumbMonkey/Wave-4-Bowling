@@ -6,6 +6,7 @@ const AimGuideClass = preload("res://scripts/aim_guide.gd")
 const EightBallRulesClass = preload("res://scripts/eight_ball_rules.gd")
 const BilliardsAIClass = preload("res://scripts/ai_opponent.gd")
 const CueControllerClass = preload("res://scripts/cue_controller.gd")
+const TrajectoryGuideClass = preload("res://scripts/trajectory_guide.gd")
 
 const TABLE_LENGTH := 8.8
 const TABLE_WIDTH := 4.4
@@ -26,13 +27,19 @@ var computer := BilliardsAIClass.new()
 var cue_controls := CueControllerClass.new()
 var aim_guide: AimGuide
 var tactical_guide: AimGuide
+var trajectory_guide: TrajectoryGuide
 var cue_visual: MeshInstance3D
 var camera: Camera3D
 var camera_yaw := 0.0
-var cue_elevation := 0.0
+var camera_pitch := 0.38
 var top_down := false
 var charge := 0.0
 var was_charging := false
+var stroke_armed := false
+var stroke_pull := 0.0
+var previous_stroke_axis := 0.0
+var placement_velocity := Vector3.ZERO
+var shot_guide_enabled := true
 var settling_frames := 0
 var current_player := 1
 var shot_pocketed := false
@@ -60,6 +67,7 @@ var replay_badge: Label
 var tip_label: Label
 var menu_panel: PanelContainer
 var difficulty_picker: OptionButton
+var guide_checkbox: CheckButton
 var match_over_panel: PanelContainer
 var match_over_label: Label
 var spin_dot: ColorRect
@@ -80,7 +88,7 @@ func _ready() -> void:
 	_build_ui()
 	_build_audio()
 	_show_mode_menu()
-	get_viewport().get_window().title = "Spectral Manor Billiards — Tactical AI v0.4"
+	get_viewport().get_window().title = "Spectral Manor Billiards — Controller & Guidance v0.5"
 
 
 func _physics_process(delta: float) -> void:
@@ -120,35 +128,122 @@ func _unhandled_input(event: InputEvent) -> void:
 		_reset_rack()
 	if event.is_action_pressed("call_pocket") and state == GameState.AIMING and not _is_computer_turn():
 		_cycle_called_pocket()
+	if event.is_action_pressed("toggle_guide") and state != GameState.MENU:
+		shot_guide_enabled = not shot_guide_enabled
+		if guide_checkbox != null:
+			guide_checkbox.button_pressed = shot_guide_enabled
+		if not shot_guide_enabled:
+			trajectory_guide.hide_guide()
+		_update_ui("Shot guide %s" % ("enabled" if shot_guide_enabled else "disabled"))
 
 
 func _update_aiming(delta: float) -> void:
 	if _is_computer_turn():
 		_begin_ai_turn()
 		return
-	var turn_axis := Input.get_axis("aim_left", "aim_right")
-	camera_yaw -= turn_axis * delta * 1.55
+	var controller_stroking := _update_controller_stroke(delta)
+	if not controller_stroking:
+		_update_camera_controls(delta)
 	var spin_input := Input.get_vector("spin_left", "spin_right", "spin_down", "spin_up")
 	cue_controls.update_spin(spin_input, delta)
 	_update_spin_reticle()
 
-	var charging := Input.is_action_pressed("charge_shot")
-	if charging:
+	var keyboard_charging := Input.is_key_pressed(KEY_SPACE) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+	if keyboard_charging and not controller_stroking:
 		charge = minf(1.0, charge + delta * 0.55)
 		was_charging = true
 	if Input.is_action_just_pressed("strike"):
 		_strike(maxf(charge, 0.28))
-	elif was_charging and not charging and charge > 0.08 and Input.get_connected_joypads().is_empty():
+	elif was_charging and not keyboard_charging and charge > 0.08 and not controller_stroking:
 		_strike(charge)
-	was_charging = charging
+	was_charging = keyboard_charging
 	power_bar.value = charge * 100.0
 
 	var direction := _shot_direction()
-	var guide_distance := _aim_distance(direction)
-	aim_guide.visible = cue_ball != null and not cue_ball.pocketed
-	if aim_guide.visible:
-		aim_guide.update_guide(cue_ball.global_position, direction, guide_distance, delta)
+	aim_guide.visible = false
+	if cue_ball != null and not cue_ball.pocketed:
+		_update_human_trajectory(direction)
 		_update_cue_visual(direction)
+
+
+func _update_controller_stroke(delta: float) -> bool:
+	var joypads := Input.get_connected_joypads()
+	if joypads.is_empty():
+		stroke_armed = false
+		return false
+	var device: int = joypads[0]
+	var trigger := Input.get_joy_axis(device, JOY_AXIS_TRIGGER_RIGHT)
+	if trigger < 0.16:
+		if stroke_armed:
+			stroke_armed = false
+			stroke_pull = 0.0
+			charge = 0.0
+		return false
+	var axis := Input.get_joy_axis(device, JOY_AXIS_RIGHT_Y)
+	if not stroke_armed:
+		stroke_armed = true
+		stroke_pull = 0.0
+		previous_stroke_axis = axis
+		_update_ui("Stroke armed — pull the right stick back, then push forward")
+	stroke_pull = maxf(stroke_pull, maxf(axis, 0.0))
+	charge = stroke_pull
+	var forward_speed := maxf((previous_stroke_axis - axis) / maxf(delta, 0.001), 0.0)
+	if stroke_pull > 0.16 and axis < -0.28:
+		var power := clampf(maxf(-axis, forward_speed * 0.075) * 0.82 + stroke_pull * 0.18, 0.22, 1.0)
+		stroke_armed = false
+		stroke_pull = 0.0
+		_strike(power)
+		return true
+	previous_stroke_axis = axis
+	return true
+
+
+func _update_camera_controls(delta: float) -> void:
+	var yaw_input := Input.get_axis("aim_left", "aim_right") + Input.get_axis("camera_left", "camera_right")
+	var pitch_input := Input.get_axis("camera_up", "camera_down")
+	camera_yaw -= clampf(yaw_input, -1.0, 1.0) * delta * 1.65
+	camera_pitch = clampf(camera_pitch + pitch_input * delta * 0.72, 0.12, 0.82)
+
+
+func _update_human_trajectory(direction: Vector3) -> void:
+	if not shot_guide_enabled:
+		trajectory_guide.hide_guide()
+		return
+	var segments: Array = []
+	var origin := cue_ball.global_position + Vector3.UP * 0.025
+	var ray_start := origin + direction * (BALL_RADIUS + 0.02)
+	var ray_end := ray_start + direction * 9.0
+	var query := PhysicsRayQueryParameters3D.create(ray_start, ray_end, 3, [cue_ball.get_rid()])
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var contact: Vector3 = ray_end if hit.is_empty() else (hit["position"] as Vector3) + Vector3.UP * 0.025
+	segments.append(PackedVector3Array([origin, contact]))
+	if not hit.is_empty() and hit.collider is SpectralBall:
+		var target := hit.collider as SpectralBall
+		var object_direction := target.global_position - cue_ball.global_position
+		object_direction.y = 0.0
+		object_direction = object_direction.normalized()
+		var object_start := target.global_position + Vector3.UP * 0.025
+		var object_end := _trajectory_ray_end(object_start, object_direction, [cue_ball.get_rid(), target.get_rid()], 4.8)
+		segments.append(PackedVector3Array([object_start, object_end]))
+		var cue_deflection := direction - object_direction * direction.dot(object_direction)
+		cue_deflection.y = 0.0
+		if cue_deflection.length() > 0.08:
+			cue_deflection = cue_deflection.normalized()
+			var deflect_start: Vector3 = contact
+			var deflect_end := _trajectory_ray_end(deflect_start, cue_deflection, [cue_ball.get_rid(), target.get_rid()], 2.3)
+			segments.append(PackedVector3Array([deflect_start, deflect_end]))
+	elif not hit.is_empty() and hit.has("normal"):
+		var reflected := direction.bounce(hit.normal).normalized()
+		var bounce_end := _trajectory_ray_end(contact, reflected, [cue_ball.get_rid()], 2.8)
+		segments.append(PackedVector3Array([contact, bounce_end]))
+	trajectory_guide.show_segments(segments)
+
+
+func _trajectory_ray_end(start: Vector3, direction: Vector3, exclusions: Array[RID], distance: float) -> Vector3:
+	var finish := start + direction * distance
+	var query := PhysicsRayQueryParameters3D.create(start + direction * 0.03, finish, 3, exclusions)
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	return finish if hit.is_empty() else hit.position + Vector3.UP * 0.025
 
 
 func _update_rolling() -> void:
@@ -209,6 +304,7 @@ func _strike_direction(direction: Vector3, power: float) -> void:
 	cue_ball.apply_torque_impulse(cue_controls.torque_for_shot(direction, power))
 	charge = 0.0
 	aim_guide.visible = false
+	trajectory_guide.hide_guide()
 	cue_visual.visible = false
 	called_pocket_label.visible = false
 	for marker in pocket_markers:
@@ -226,6 +322,7 @@ func _begin_ai_turn() -> void:
 		if not ball.pocketed and ball.number > 0:
 			positions[ball.number] = ball.global_position
 	ai_plan = computer.plan_shot(cue_ball.global_position, positions, rules.legal_targets(2), pocket_positions)
+	trajectory_guide.hide_guide()
 	cue_controls.spin = ai_plan.get("spin", Vector2.ZERO)
 	_update_spin_reticle()
 	if rules.legal_targets(2) == [8]:
@@ -292,6 +389,9 @@ func _begin_ball_in_hand(kitchen_only: bool) -> void:
 	cue_ball.freeze = true
 	cue_ball.linear_velocity = Vector3.ZERO
 	cue_ball.angular_velocity = Vector3.ZERO
+	placement_velocity = Vector3.ZERO
+	trajectory_guide.hide_guide()
+	cue_visual.visible = false
 	var start_x := -2.8 if kitchen_only else clampf(cue_ball.global_position.x, -3.75, 3.75)
 	cue_ball.global_position = Vector3(start_x, BALL_Y, clampf(cue_ball.global_position.z, -1.7, 1.7))
 	state = GameState.BALL_IN_HAND
@@ -306,19 +406,25 @@ func _begin_ball_in_hand(kitchen_only: bool) -> void:
 func _update_ball_in_hand(delta: float) -> void:
 	if _is_computer_turn():
 		return
-	var movement := Vector3(
-		Input.get_axis("aim_left", "aim_right"),
-		0.0,
+	_update_camera_controls(delta)
+	var stick := Vector2(
+		Input.get_axis("place_left", "place_right"),
 		Input.get_axis("place_up", "place_down")
 	)
-	if movement.length() > 1.0:
-		movement = movement.normalized()
-	var next_position := cue_ball.global_position + movement * delta * 1.85
+	if stick.length() > 1.0:
+		stick = stick.normalized()
+	var forward := _shot_direction()
+	var right := Vector3(-forward.z, 0.0, forward.x)
+	var desired_velocity := (right * stick.x - forward * stick.y) * 1.75
+	placement_velocity = placement_velocity.move_toward(desired_velocity, delta * 7.5)
+	var next_position := cue_ball.global_position + placement_velocity * delta
 	next_position.x = clampf(next_position.x, -3.88, -2.15 if ball_in_hand_kitchen_only else 3.88)
 	next_position.z = clampf(next_position.z, -1.78, 1.78)
 	next_position.y = BALL_Y
 	if _is_valid_cue_placement(next_position):
 		cue_ball.global_position = next_position
+	else:
+		placement_velocity = Vector3.ZERO
 	if Input.is_action_just_pressed("strike"):
 		_confirm_ball_in_hand()
 
@@ -329,6 +435,7 @@ func _confirm_ball_in_hand() -> void:
 		return
 	rules.ball_in_hand = false
 	cue_ball.freeze = false
+	placement_velocity = Vector3.ZERO
 	state = GameState.AIMING
 	cue_controls.reset()
 	_update_spin_reticle()
@@ -406,7 +513,7 @@ func _update_cue_visual(direction: Vector3) -> void:
 	cue_visual.visible = true
 	var pullback := 0.36 + charge * 0.75
 	var center := cue_ball.global_position - direction * (1.45 + pullback)
-	center.y += 0.09 + cue_elevation * 0.7
+	center.y += 0.11
 	cue_visual.global_position = center
 	cue_visual.look_at(center + direction, Vector3.UP)
 	cue_visual.rotate_object_local(Vector3.RIGHT, PI * 0.5)
@@ -421,7 +528,9 @@ func _update_camera(delta: float) -> void:
 		desired = Vector3(0.0, 10.8, 0.01)
 	else:
 		var direction := _shot_direction()
-		desired = target - direction * 4.1 + Vector3.UP * 2.35
+		var distance := lerpf(4.9, 3.55, camera_pitch)
+		var height := lerpf(1.35, 4.15, camera_pitch)
+		desired = target - direction * distance + Vector3.UP * height
 	camera.global_position = camera.global_position.lerp(desired, 1.0 - exp(-delta * 5.2))
 	camera.look_at(target + Vector3.UP * (0.05 if top_down else 0.2), Vector3.FORWARD if top_down else Vector3.UP)
 
@@ -444,6 +553,7 @@ func _start_replay(frames: Array[Dictionary], automatic: bool) -> void:
 		ball.freeze = true
 	state = GameState.REPLAY
 	aim_guide.visible = false
+	trajectory_guide.hide_guide()
 	cue_visual.visible = false
 	replay_badge.visible = true
 	replay_badge.text = "SPECTRAL REPLAY  •  0.25×" if automatic else "LAST SHOT REPLAY"
@@ -643,7 +753,9 @@ func _build_table() -> void:
 
 	for x in [-3.8, 3.8]:
 		for z in [-1.75, 1.75]:
-			_create_mesh_box(Vector3(0.52, 0.92, 0.52), Vector3(x, 0.46, z), mahogany)
+			# Keep the leg tops safely below the slate so they cannot z-fight
+			# through the felt as square corner artifacts.
+			_create_mesh_box(Vector3(0.52, 0.72, 0.52), Vector3(x, 0.36, z), mahogany)
 			var foot := MeshInstance3D.new()
 			var foot_mesh := SphereMesh.new()
 			foot_mesh.radius = 0.34
@@ -800,6 +912,9 @@ func _build_camera_and_aiming() -> void:
 	tactical_guide = AimGuideClass.new() as AimGuide
 	tactical_guide.visible = false
 	add_child(tactical_guide)
+	trajectory_guide = TrajectoryGuideClass.new() as TrajectoryGuide
+	add_child(trajectory_guide)
+	trajectory_guide.hide_guide()
 
 	cue_visual = MeshInstance3D.new()
 	var cue_mesh := CylinderMesh.new()
@@ -908,7 +1023,7 @@ func _build_ui() -> void:
 	canvas.add_child(ai_tactic_label)
 
 	tip_label = Label.new()
-	tip_label.text = "Aim: Left stick / A D / mouse     English: Right stick / arrows     Charge: RT / Space or RMB\nStrike/Place: RB / Enter or LMB     Call pocket: B / C     Tactical: Y / T     Replay: X / R"
+	tip_label.text = "Place: Left stick / WASD     Camera: Right stick / A D / mouse     English: D-pad / arrows\nShoot: Hold RT, pull right stick back, push forward     Guide: LB / G     Tactical: Y / T     Replay: X / R"
 	tip_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	tip_label.position = Vector2(34.0, -72.0)
 	tip_label.add_theme_font_size_override("font_size", 14)
@@ -924,9 +1039,9 @@ func _build_ui() -> void:
 	canvas.add_child(replay_badge)
 
 	menu_panel = PanelContainer.new()
-	menu_panel.custom_minimum_size = Vector2(460.0, 410.0)
+	menu_panel.custom_minimum_size = Vector2(460.0, 452.0)
 	menu_panel.set_anchors_preset(Control.PRESET_CENTER)
-	menu_panel.position = Vector2(-230.0, -205.0)
+	menu_panel.position = Vector2(-230.0, -226.0)
 	canvas.add_child(menu_panel)
 	var menu_margin := MarginContainer.new()
 	menu_margin.add_theme_constant_override("margin_left", 34)
@@ -949,14 +1064,17 @@ func _build_ui() -> void:
 	menu_copy.add_theme_color_override("font_color", Color("a8c9bf"))
 	menu_layout.add_child(menu_copy)
 	var practice_button := Button.new()
+	practice_button.name = "PracticeButton"
 	practice_button.text = "PRACTICE ALONE"
 	practice_button.pressed.connect(_start_match.bind(EightBallRules.Mode.PRACTICE))
 	menu_layout.add_child(practice_button)
 	var cpu_button := Button.new()
+	cpu_button.name = "ComputerButton"
 	cpu_button.text = "VERSUS THE MANOR"
 	cpu_button.pressed.connect(_start_match.bind(EightBallRules.Mode.VS_CPU))
 	menu_layout.add_child(cpu_button)
 	var local_button := Button.new()
+	local_button.name = "LocalButton"
 	local_button.text = "LOCAL TWO PLAYER"
 	local_button.pressed.connect(_start_match.bind(EightBallRules.Mode.LOCAL_TWO_PLAYER))
 	menu_layout.add_child(local_button)
@@ -970,6 +1088,11 @@ func _build_ui() -> void:
 	difficulty_picker.add_item("Hard — table revenant", BilliardsAI.Difficulty.HARD)
 	difficulty_picker.select(1)
 	menu_layout.add_child(difficulty_picker)
+	guide_checkbox = CheckButton.new()
+	guide_checkbox.text = "Solid light-blue shot guide"
+	guide_checkbox.button_pressed = shot_guide_enabled
+	guide_checkbox.toggled.connect(_on_guide_toggled)
+	menu_layout.add_child(guide_checkbox)
 	practice_button.call_deferred("grab_focus")
 
 	match_over_panel = PanelContainer.new()
@@ -1017,6 +1140,7 @@ func _show_mode_menu() -> void:
 	menu_panel.visible = true
 	match_over_panel.visible = false
 	aim_guide.visible = false
+	trajectory_guide.hide_guide()
 	cue_visual.visible = false
 	called_pocket_label.visible = false
 	ai_tactic_label.visible = false
@@ -1045,12 +1169,19 @@ func _start_match(mode: EightBallRules.Mode) -> void:
 func _show_match_over(winning_player: int, message: String) -> void:
 	state = GameState.MATCH_OVER
 	aim_guide.visible = false
+	trajectory_guide.hide_guide()
 	cue_visual.visible = false
 	match_over_label.text = message if selected_mode != EightBallRules.Mode.VS_CPU else ("YOU WIN" if winning_player == 1 else "THE MANOR WINS")
 	match_over_panel.visible = true
 	ai_tactic_label.visible = false
 	tactical_guide.visible = false
 	_update_ui(message)
+
+
+func _on_guide_toggled(enabled: bool) -> void:
+	shot_guide_enabled = enabled
+	if not enabled and trajectory_guide != null:
+		trajectory_guide.hide_guide()
 
 
 func _build_audio() -> void:
@@ -1139,12 +1270,16 @@ func _material(color: Color, roughness: float, metallic: float) -> StandardMater
 
 
 func _ensure_input_map() -> void:
+	_add_key_action("ui_accept", KEY_ENTER)
+	_add_joy_button_action("ui_accept", JOY_BUTTON_A)
 	_add_key_action("aim_left", KEY_A)
 	_add_key_action("aim_right", KEY_D)
 	_add_key_action("aim_up", KEY_W)
 	_add_key_action("aim_down", KEY_S)
 	_add_key_action("place_up", KEY_W)
 	_add_key_action("place_down", KEY_S)
+	_add_key_action("place_left", KEY_A)
+	_add_key_action("place_right", KEY_D)
 	_add_key_action("spin_left", KEY_LEFT)
 	_add_key_action("spin_right", KEY_RIGHT)
 	_add_key_action("spin_up", KEY_UP)
@@ -1155,18 +1290,24 @@ func _ensure_input_map() -> void:
 	_add_key_action("replay", KEY_R)
 	_add_key_action("reset_rack", KEY_ESCAPE)
 	_add_key_action("call_pocket", KEY_C)
+	_add_key_action("toggle_guide", KEY_G)
 	_add_mouse_action("charge_shot", MOUSE_BUTTON_RIGHT)
 	_add_mouse_action("strike", MOUSE_BUTTON_LEFT)
-	_add_joy_axis_action("aim_left", JOY_AXIS_LEFT_X, -1.0)
-	_add_joy_axis_action("aim_right", JOY_AXIS_LEFT_X, 1.0)
+	_add_joy_axis_action("place_left", JOY_AXIS_LEFT_X, -1.0)
+	_add_joy_axis_action("place_right", JOY_AXIS_LEFT_X, 1.0)
 	_add_joy_axis_action("place_up", JOY_AXIS_LEFT_Y, -1.0)
 	_add_joy_axis_action("place_down", JOY_AXIS_LEFT_Y, 1.0)
-	_add_joy_axis_action("spin_left", JOY_AXIS_RIGHT_X, -1.0)
-	_add_joy_axis_action("spin_right", JOY_AXIS_RIGHT_X, 1.0)
-	_add_joy_axis_action("spin_up", JOY_AXIS_RIGHT_Y, -1.0)
-	_add_joy_axis_action("spin_down", JOY_AXIS_RIGHT_Y, 1.0)
+	_add_joy_axis_action("camera_left", JOY_AXIS_RIGHT_X, -1.0)
+	_add_joy_axis_action("camera_right", JOY_AXIS_RIGHT_X, 1.0)
+	_add_joy_axis_action("camera_up", JOY_AXIS_RIGHT_Y, -1.0)
+	_add_joy_axis_action("camera_down", JOY_AXIS_RIGHT_Y, 1.0)
 	_add_joy_axis_action("charge_shot", JOY_AXIS_TRIGGER_RIGHT, 1.0)
+	_add_joy_button_action("spin_left", JOY_BUTTON_DPAD_LEFT)
+	_add_joy_button_action("spin_right", JOY_BUTTON_DPAD_RIGHT)
+	_add_joy_button_action("spin_up", JOY_BUTTON_DPAD_UP)
+	_add_joy_button_action("spin_down", JOY_BUTTON_DPAD_DOWN)
 	_add_joy_button_action("strike", JOY_BUTTON_RIGHT_SHOULDER)
+	_add_joy_button_action("toggle_guide", JOY_BUTTON_LEFT_SHOULDER)
 	_add_joy_button_action("toggle_view", JOY_BUTTON_Y)
 	_add_joy_button_action("replay", JOY_BUTTON_X)
 	_add_joy_button_action("reset_rack", JOY_BUTTON_BACK)
@@ -1182,12 +1323,16 @@ func _add_key_action(action: StringName, key: Key) -> void:
 
 
 func _add_mouse_action(action: StringName, button: MouseButton) -> void:
+	if not InputMap.has_action(action):
+		InputMap.add_action(action, 0.18)
 	var event := InputEventMouseButton.new()
 	event.button_index = button
 	InputMap.action_add_event(action, event)
 
 
 func _add_joy_axis_action(action: StringName, axis: JoyAxis, value: float) -> void:
+	if not InputMap.has_action(action):
+		InputMap.add_action(action, 0.18)
 	var event := InputEventJoypadMotion.new()
 	event.axis = axis
 	event.axis_value = value
