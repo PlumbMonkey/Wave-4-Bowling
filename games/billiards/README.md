@@ -16,7 +16,11 @@ The current vertical slice is generated procedurally at runtime and includes:
 - Practice Alone, Versus Computer, and Local Two Player modes;
 - eight-ball group assignment, legal-target checking, fouls, scratches, turn continuation, and win/loss evaluation;
 - an AI shot planner with Easy, Medium, and Hard accuracy profiles;
-- pocket tracking, ball-in-hand cue return, and re-racking.
+- interactive human and strategic computer ball-in-hand placement;
+- right-stick/arrow-key top, draw, and side English with physical torque;
+- legal-break validation with distinct rail-contact counting;
+- called-pocket eight-ball play and eight-on-break respotting;
+- pocket tracking and re-racking.
 
 ## Run
 
@@ -30,12 +34,15 @@ Godot_v4.7.2-stable_win64.exe --path <project-folder>
 
 ![Gameplay Core mode selection](docs/gameplay-core.png)
 
+![Ball Control v0.3](docs/ball-control.png)
+
 ### Smoke test
 
 ```text
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/smoke_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/gameplay_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/ai_flow_test.gd
+Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --script res://tests/ball_control_test.gd
 ```
 
 ## Controls
@@ -43,9 +50,11 @@ Godot_v4.7.2-stable_win64_console.exe --headless --path <project-folder> --scrip
 | Action | Xbox controller | Keyboard / mouse |
 | --- | --- | --- |
 | Aim around table | Left stick | A/D or move mouse |
-| Cue elevation / early English preview | Right stick vertical | W/S |
+| Apply English | Right stick | Arrow keys |
 | Build power | Right trigger | Hold Space or right mouse |
 | Strike | Right bumper | Enter or left mouse |
+| Place cue ball | Left stick, then right bumper | WASD, then Enter or left mouse |
+| Call eight-ball pocket | B | C |
 | Tactical view | Y | T |
 | Replay last shot | X | R |
 | Re-rack | Back | Escape |
@@ -57,10 +66,9 @@ The supplied concept images are preserved under `docs/reference/`. They are visu
 ## Next production passes
 
 1. Replace the procedural room and table with optimized Blender assets.
-2. Add interactive ball-in-hand placement and expand rail/contact edge-case coverage.
-3. Add proper offset striking and full spin/rail-transfer physics.
-4. Expand Hard AI with bank shots, safeties, and cue-ball position planning.
-5. Record and layer production resin, rubber, roll, ambience, and reverb audio.
-6. Add accessibility settings, save data, export presets, and optional GIF highlights.
+2. Expand Hard AI with bank shots, safeties, and deeper cue-ball position planning.
+3. Tune spin decay, cushion transfer, table friction, and shot strength from playtesting.
+4. Record and layer production resin, rubber, roll, ambience, and reverb audio.
+5. Add accessibility settings, save data, export presets, and optional GIF highlights.
 
 See `THIRD_PARTY.md` for open-source evaluation and license boundaries.

@@ -24,7 +24,8 @@ func plan_shot(cue_position: Vector3, ball_positions: Dictionary, legal_numbers:
 		if not ball_positions.has(number):
 			continue
 		var target: Vector3 = ball_positions[number]
-		for pocket in pocket_positions:
+		for pocket_index in pocket_positions.size():
+			var pocket: Vector3 = pocket_positions[pocket_index]
 			var target_to_pocket := pocket - target
 			target_to_pocket.y = 0.0
 			if target_to_pocket.length() < 0.01:
@@ -54,12 +55,39 @@ func plan_shot(cue_position: Vector3, ball_positions: Dictionary, legal_numbers:
 					"power": clampf(0.28 + distance * 0.065, 0.34, 0.92),
 					"target": number,
 					"pocket": pocket,
+					"pocket_index": pocket_index,
 					"confidence": clampf((alignment + 1.0) * 0.5 - distance * 0.025, 0.0, 1.0),
 				}
 
 	if best.is_empty():
 		best = _fallback_shot(cue_position, ball_positions, legal_numbers)
 	return _apply_difficulty(best)
+
+
+func choose_cue_position(ball_positions: Dictionary, legal_numbers: Array[int], pocket_positions: Array[Vector3], kitchen_only: bool = false) -> Vector3:
+	var best_position := Vector3(-2.8, 1.077, 0.0)
+	var best_score := -INF
+	var maximum_x := -2.15 if kitchen_only else 3.7
+	for x_step in 7:
+		var x := lerpf(-3.75, maximum_x, float(x_step) / 6.0)
+		for z_step in 5:
+			var z := lerpf(-1.65, 1.65, float(z_step) / 4.0)
+			var candidate := Vector3(x, 1.077, z)
+			if not _position_clear(candidate, ball_positions):
+				continue
+			var plan := plan_shot(candidate, ball_positions, legal_numbers, pocket_positions)
+			var score := float(plan.get("confidence", 0.0)) - candidate.length() * 0.002
+			if score > best_score:
+				best_score = score
+				best_position = candidate
+	return best_position
+
+
+func _position_clear(candidate: Vector3, ball_positions: Dictionary) -> bool:
+	for number in ball_positions:
+		if candidate.distance_to(ball_positions[number]) < BALL_DIAMETER * 1.18:
+			return false
+	return true
 
 
 func _corridor_clear(start: Vector3, finish: Vector3, ball_positions: Dictionary, ignored: Array[int]) -> bool:
@@ -118,4 +146,5 @@ func _apply_difficulty(plan: Dictionary) -> Dictionary:
 	direction = direction.rotated(Vector3.UP, angle_error).normalized()
 	plan["direction"] = direction
 	plan["power"] = clampf(float(plan["power"]) + power_error, 0.22, 1.0)
+	plan["spin"] = Vector2.ZERO if difficulty == Difficulty.EASY else Vector2(rng.randf_range(-0.18, 0.18), rng.randf_range(-0.08, 0.32))
 	return plan

@@ -5,6 +5,7 @@ const SpectralBallClass = preload("res://scripts/spectral_ball.gd")
 const AimGuideClass = preload("res://scripts/aim_guide.gd")
 const EightBallRulesClass = preload("res://scripts/eight_ball_rules.gd")
 const BilliardsAIClass = preload("res://scripts/ai_opponent.gd")
+const CueControllerClass = preload("res://scripts/cue_controller.gd")
 
 const TABLE_LENGTH := 8.8
 const TABLE_WIDTH := 4.4
@@ -14,7 +15,7 @@ const BALL_Y := BED_Y + BALL_RADIUS + 0.012
 const STOP_SPEED := 0.035
 const MAX_SHOT_IMPULSE := 4.2
 
-enum GameState { MENU, AIMING, AI_THINKING, ROLLING, REPLAY, MATCH_OVER }
+enum GameState { MENU, BALL_IN_HAND, AIMING, AI_THINKING, ROLLING, REPLAY, MATCH_OVER }
 
 var state := GameState.MENU
 var balls: Array[RigidBody3D] = []
@@ -22,6 +23,7 @@ var cue_ball: SpectralBall
 var replay_buffer := ReplayBufferClass.new()
 var rules := EightBallRulesClass.new()
 var computer := BilliardsAIClass.new()
+var cue_controls := CueControllerClass.new()
 var aim_guide: AimGuide
 var cue_visual: MeshInstance3D
 var camera: Camera3D
@@ -35,6 +37,9 @@ var current_player := 1
 var shot_pocketed := false
 var potted_numbers: Array[int] = []
 var pocket_positions: Array[Vector3] = []
+var pocket_markers: Array[MeshInstance3D] = []
+var called_pocket_index := 0
+var ball_in_hand_kitchen_only := false
 var selected_mode := EightBallRules.Mode.PRACTICE
 var selected_difficulty := BilliardsAI.Difficulty.MEDIUM
 var ai_plan := {}
@@ -56,6 +61,9 @@ var menu_panel: PanelContainer
 var difficulty_picker: OptionButton
 var match_over_panel: PanelContainer
 var match_over_label: Label
+var spin_dot: ColorRect
+var spin_label: Label
+var called_pocket_label: Label
 var resin_stream: AudioStreamWAV
 var cushion_stream: AudioStreamWAV
 
@@ -70,7 +78,7 @@ func _ready() -> void:
 	_build_ui()
 	_build_audio()
 	_show_mode_menu()
-	get_viewport().get_window().title = "Spectral Manor Billiards — Gameplay Core v0.2"
+	get_viewport().get_window().title = "Spectral Manor Billiards — Ball Control v0.3"
 
 
 func _physics_process(delta: float) -> void:
@@ -83,6 +91,8 @@ func _physics_process(delta: float) -> void:
 	replay_buffer.capture(balls)
 	if state == GameState.AIMING:
 		_update_aiming(delta)
+	elif state == GameState.BALL_IN_HAND:
+		_update_ball_in_hand(delta)
 	elif state == GameState.AI_THINKING:
 		_update_ai_thinking(delta)
 	else:
@@ -106,6 +116,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if state == GameState.MENU:
 			return
 		_reset_rack()
+	if event.is_action_pressed("call_pocket") and state == GameState.AIMING and not _is_computer_turn():
+		_cycle_called_pocket()
 
 
 func _update_aiming(delta: float) -> void:
@@ -114,8 +126,9 @@ func _update_aiming(delta: float) -> void:
 		return
 	var turn_axis := Input.get_axis("aim_left", "aim_right")
 	camera_yaw -= turn_axis * delta * 1.55
-	var elevation_axis := Input.get_axis("aim_down", "aim_up")
-	cue_elevation = clampf(cue_elevation + elevation_axis * delta * 0.7, -0.18, 0.32)
+	var spin_input := Input.get_vector("spin_left", "spin_right", "spin_down", "spin_up")
+	cue_controls.update_spin(spin_input, delta)
+	_update_spin_reticle()
 
 	var charging := Input.is_action_pressed("charge_shot")
 	if charging:
@@ -154,15 +167,22 @@ func _update_rolling() -> void:
 			ball.angular_velocity = Vector3.ZERO
 	var result: Dictionary = rules.evaluate_shot()
 	current_player = rules.current_player
-	if cue_ball.pocketed:
-		_respawn_cue_ball()
+	if bool(result.get("respot_eight", false)):
+		_respot_ball(8, Vector3(1.55, BALL_Y, 0.0))
 	shot_pocketed = false
 	charge = 0.0
 	settling_frames = 0
 	if int(result["winner"]) > 0:
 		_show_match_over(int(result["winner"]), str(result["message"]))
 		return
+	if bool(result.get("ball_in_hand", false)):
+		_begin_ball_in_hand(false)
+		_update_ui(str(result["message"]))
+		return
 	state = GameState.AIMING
+	cue_controls.reset()
+	_update_spin_reticle()
+	_update_called_pocket_display()
 	_update_ui(str(result["message"]))
 
 
@@ -179,15 +199,18 @@ func _strike_direction(direction: Vector3, power: float) -> void:
 	shot_pocketed = false
 	settling_frames = 0
 	rules.begin_shot()
+	if rules.legal_targets(current_player) == [8]:
+		rules.call_pocket(called_pocket_index)
 	replay_buffer.mark_shot_start()
 	var impulse := direction * lerpf(0.65, MAX_SHOT_IMPULSE, power)
-	impulse.y = clampf(cue_elevation, -0.05, 0.2) * power
 	cue_ball.apply_central_impulse(impulse)
-	# A small torque term previews the English system while preserving stable breaks.
-	cue_ball.apply_torque_impulse(Vector3(direction.z, 0.0, -direction.x) * cue_elevation * power * 0.12)
+	cue_ball.apply_torque_impulse(cue_controls.torque_for_shot(direction, power))
 	charge = 0.0
 	aim_guide.visible = false
 	cue_visual.visible = false
+	called_pocket_label.visible = false
+	for marker in pocket_markers:
+		marker.visible = false
 	_update_ui("Shot in motion")
 
 
@@ -199,11 +222,16 @@ func _begin_ai_turn() -> void:
 		if not ball.pocketed and ball.number > 0:
 			positions[ball.number] = ball.global_position
 	ai_plan = computer.plan_shot(cue_ball.global_position, positions, rules.legal_targets(2), pocket_positions)
+	cue_controls.spin = ai_plan.get("spin", Vector2.ZERO)
+	if rules.legal_targets(2) == [8]:
+		called_pocket_index = int(ai_plan.get("pocket_index", 0))
+		_update_called_pocket_display()
 	var direction: Vector3 = ai_plan.get("direction", Vector3.RIGHT)
 	ai_start_yaw = camera_yaw
 	ai_target_yaw = atan2(direction.z, direction.x)
 	ai_aim_time = 0.0
 	state = GameState.AI_THINKING
+	_update_called_pocket_display()
 	_update_ui("The manor studies the table…")
 
 
@@ -225,6 +253,105 @@ func _update_ai_thinking(delta: float) -> void:
 
 func _is_computer_turn() -> bool:
 	return selected_mode == EightBallRules.Mode.VS_CPU and current_player == 2
+
+
+func _begin_ball_in_hand(kitchen_only: bool) -> void:
+	ball_in_hand_kitchen_only = kitchen_only
+	cue_ball.pocketed = false
+	cue_ball.visible = true
+	cue_ball.freeze = true
+	cue_ball.linear_velocity = Vector3.ZERO
+	cue_ball.angular_velocity = Vector3.ZERO
+	var start_x := -2.8 if kitchen_only else clampf(cue_ball.global_position.x, -3.75, 3.75)
+	cue_ball.global_position = Vector3(start_x, BALL_Y, clampf(cue_ball.global_position.z, -1.7, 1.7))
+	state = GameState.BALL_IN_HAND
+	if _is_computer_turn():
+		var positions := _active_ball_positions()
+		cue_ball.global_position = computer.choose_cue_position(positions, rules.legal_targets(2), pocket_positions, kitchen_only)
+		_confirm_ball_in_hand()
+	else:
+		_update_ui("Ball in hand — move with left stick/WASD, press Strike to place")
+
+
+func _update_ball_in_hand(delta: float) -> void:
+	if _is_computer_turn():
+		return
+	var movement := Vector3(
+		Input.get_axis("aim_left", "aim_right"),
+		0.0,
+		Input.get_axis("place_up", "place_down")
+	)
+	if movement.length() > 1.0:
+		movement = movement.normalized()
+	var next_position := cue_ball.global_position + movement * delta * 1.85
+	next_position.x = clampf(next_position.x, -3.88, -2.15 if ball_in_hand_kitchen_only else 3.88)
+	next_position.z = clampf(next_position.z, -1.78, 1.78)
+	next_position.y = BALL_Y
+	if _is_valid_cue_placement(next_position):
+		cue_ball.global_position = next_position
+	if Input.is_action_just_pressed("strike"):
+		_confirm_ball_in_hand()
+
+
+func _confirm_ball_in_hand() -> void:
+	if not _is_valid_cue_placement(cue_ball.global_position):
+		_update_ui("Cue ball overlaps another ball — choose a clear position")
+		return
+	rules.ball_in_hand = false
+	cue_ball.freeze = false
+	state = GameState.AIMING
+	cue_controls.reset()
+	_update_spin_reticle()
+	_update_ui("Player %d — ball placed" % current_player)
+
+
+func _is_valid_cue_placement(candidate: Vector3) -> bool:
+	for ball in balls:
+		if ball == cue_ball or ball.pocketed:
+			continue
+		var flat_distance := Vector2(candidate.x, candidate.z).distance_to(Vector2(ball.global_position.x, ball.global_position.z))
+		if flat_distance < BALL_RADIUS * 2.15:
+			return false
+	return true
+
+
+func _active_ball_positions() -> Dictionary:
+	var positions := {}
+	for ball in balls:
+		if ball.number > 0 and not ball.pocketed:
+			positions[ball.number] = ball.global_position
+	return positions
+
+
+func _respot_ball(number: int, spot: Vector3) -> void:
+	for ball in balls:
+		if ball.number == number:
+			ball.pocketed = false
+			ball.visible = true
+			ball.freeze = true
+			ball.global_position = spot
+			ball.linear_velocity = Vector3.ZERO
+			ball.angular_velocity = Vector3.ZERO
+			potted_numbers.erase(number)
+			await get_tree().physics_frame
+			ball.freeze = false
+			return
+
+
+func _cycle_called_pocket() -> void:
+	if rules.legal_targets(current_player) != [8]:
+		_update_ui("Called pockets become available after clearing your group")
+		return
+	called_pocket_index = (called_pocket_index + 1) % pocket_positions.size()
+	_update_called_pocket_display()
+
+
+func _update_called_pocket_display() -> void:
+	var calling_eight := state in [GameState.AIMING, GameState.AI_THINKING] and rules.legal_targets(current_player) == [8]
+	called_pocket_label.visible = calling_eight
+	called_pocket_label.text = "CALLED POCKET: %d  •  B / C TO CHANGE" % (called_pocket_index + 1)
+	for index in pocket_markers.size():
+		pocket_markers[index].visible = calling_eight and index == called_pocket_index
 
 
 func _shot_direction() -> Vector3:
@@ -353,7 +480,8 @@ func _on_pocket_body_entered(body: Node, pocket_position: Vector3) -> void:
 	ball.angular_velocity = Vector3.ZERO
 	ball.freeze = true
 	ball.visible = false
-	rules.record_pocket(ball.number)
+	var pocket_index := pocket_positions.find(pocket_position)
+	rules.record_pocket(ball.number, pocket_index)
 	if ball.number > 0:
 		shot_pocketed = true
 		potted_numbers.append(ball.number)
@@ -388,8 +516,13 @@ func _reset_rack() -> void:
 	current_player = rules.current_player
 	state = GameState.AIMING
 	charge = 0.0
+	called_pocket_index = 0
+	cue_controls.reset()
 	_build_balls()
-	_update_ui("Fresh rack — Player 1 to break")
+	_update_spin_reticle()
+	_update_called_pocket_display()
+	_begin_ball_in_hand(true)
+	_update_ui("Opening break — place the cue ball behind the head string")
 
 
 func _build_world() -> void:
@@ -536,6 +669,23 @@ func _build_pocket(pocket_position: Vector3, brass: Material) -> void:
 	add_child(area)
 	area.body_entered.connect(_on_pocket_body_entered.bind(pocket_position))
 
+	var marker := MeshInstance3D.new()
+	var marker_mesh := TorusMesh.new()
+	marker_mesh.inner_radius = 0.29
+	marker_mesh.outer_radius = 0.40
+	marker_mesh.rings = 24
+	marker_mesh.ring_segments = 10
+	marker.mesh = marker_mesh
+	var marker_material := _material(Color("64ffe0"), 0.18, 0.45)
+	marker_material.emission_enabled = true
+	marker_material.emission = Color("3dffd1")
+	marker_material.emission_energy_multiplier = 3.0
+	marker.material_override = marker_material
+	marker.position = pocket_position + Vector3.UP * 0.025
+	marker.visible = false
+	add_child(marker)
+	pocket_markers.append(marker)
+
 
 func _build_balls() -> void:
 	var ball_colors := [
@@ -602,7 +752,7 @@ func _create_ball(number: int, spawn_position: Vector3, color: Color) -> Spectra
 
 	add_child(ball)
 	balls.append(ball)
-	ball.impact.connect(_on_ball_impact)
+	ball.impact.connect(_on_ball_impact.bind(number))
 	if number == 0:
 		ball.contacted_ball.connect(_on_cue_contacted_ball)
 	return ball
@@ -675,8 +825,47 @@ func _build_ui() -> void:
 	power_bar.show_percentage = false
 	layout.add_child(power_bar)
 
+	var spin_panel := PanelContainer.new()
+	spin_panel.custom_minimum_size = Vector2(104.0, 126.0)
+	spin_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	spin_panel.position = Vector2(-138.0, 28.0)
+	canvas.add_child(spin_panel)
+	var spin_box := Control.new()
+	spin_panel.add_child(spin_box)
+	var horizontal_line := ColorRect.new()
+	horizontal_line.color = Color("526b66")
+	horizontal_line.position = Vector2(12.0, 50.0)
+	horizontal_line.size = Vector2(80.0, 1.0)
+	spin_box.add_child(horizontal_line)
+	var vertical_line := ColorRect.new()
+	vertical_line.color = Color("526b66")
+	vertical_line.position = Vector2(52.0, 10.0)
+	vertical_line.size = Vector2(1.0, 80.0)
+	spin_box.add_child(vertical_line)
+	spin_dot = ColorRect.new()
+	spin_dot.color = Color("75ffe1")
+	spin_dot.size = Vector2(10.0, 10.0)
+	spin_dot.position = Vector2(47.0, 45.0)
+	spin_box.add_child(spin_dot)
+	spin_label = Label.new()
+	spin_label.position = Vector2(8.0, 98.0)
+	spin_label.size = Vector2(88.0, 22.0)
+	spin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	spin_label.add_theme_font_size_override("font_size", 11)
+	spin_box.add_child(spin_label)
+
+	called_pocket_label = Label.new()
+	called_pocket_label.visible = false
+	called_pocket_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	called_pocket_label.position = Vector2(-190.0, -112.0)
+	called_pocket_label.size = Vector2(380.0, 28.0)
+	called_pocket_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	called_pocket_label.add_theme_font_size_override("font_size", 16)
+	called_pocket_label.add_theme_color_override("font_color", Color("75ffe1"))
+	canvas.add_child(called_pocket_label)
+
 	tip_label = Label.new()
-	tip_label.text = "Aim: Left stick / A D / mouse     Charge: RT / hold Space or RMB     Strike: RB / Enter or LMB\nTactical: Y / T     Replay: X / R     Re-rack: Back / Esc"
+	tip_label.text = "Aim: Left stick / A D / mouse     English: Right stick / arrows     Charge: RT / Space or RMB\nStrike/Place: RB / Enter or LMB     Call pocket: B / C     Tactical: Y / T     Replay: X / R"
 	tip_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	tip_label.position = Vector2(34.0, -72.0)
 	tip_label.add_theme_font_size_override("font_size", 14)
@@ -773,12 +962,20 @@ func _update_ui(message: String) -> void:
 	status_label.text = message
 
 
+func _update_spin_reticle() -> void:
+	if spin_dot == null:
+		return
+	spin_dot.position = Vector2(47.0 + cue_controls.spin.x * 36.0, 45.0 - cue_controls.spin.y * 36.0)
+	spin_label.text = cue_controls.strike_label()
+
+
 func _show_mode_menu() -> void:
 	state = GameState.MENU
 	menu_panel.visible = true
 	match_over_panel.visible = false
 	aim_guide.visible = false
 	cue_visual.visible = false
+	called_pocket_label.visible = false
 	camera.global_position = Vector3(0.0, 7.2, 7.4)
 	camera.look_at(Vector3(0.0, BED_Y, 0.0), Vector3.UP)
 	_update_ui("Choose a game mode")
@@ -793,11 +990,11 @@ func _start_match(mode: EightBallRules.Mode) -> void:
 	_reset_rack()
 	match mode:
 		EightBallRules.Mode.PRACTICE:
-			_update_ui("Practice table — play at your own pace")
+			_update_ui("Practice table — place the cue ball for the break")
 		EightBallRules.Mode.VS_CPU:
-			_update_ui("Player 1 breaks against the manor")
+			_update_ui("Place the cue ball, then break against the manor")
 		EightBallRules.Mode.LOCAL_TWO_PLAYER:
-			_update_ui("Local match — Player 1 to break")
+			_update_ui("Local match — Player 1 places the cue ball to break")
 
 
 func _show_match_over(winning_player: int, message: String) -> void:
@@ -814,9 +1011,9 @@ func _build_audio() -> void:
 	cushion_stream = _make_impact_stream(0.11, 230.0, 0.52)
 
 
-func _on_ball_impact(hit_position: Vector3, intensity: float, cushion: bool) -> void:
+func _on_ball_impact(hit_position: Vector3, intensity: float, cushion: bool, ball_number: int) -> void:
 	if cushion and state == GameState.ROLLING:
-		rules.record_rail_contact()
+		rules.record_rail_contact(ball_number)
 	if DisplayServer.get_name() == "headless" or intensity < 0.08 or state == GameState.REPLAY:
 		return
 	var player := AudioStreamPlayer3D.new()
@@ -899,22 +1096,34 @@ func _ensure_input_map() -> void:
 	_add_key_action("aim_right", KEY_D)
 	_add_key_action("aim_up", KEY_W)
 	_add_key_action("aim_down", KEY_S)
+	_add_key_action("place_up", KEY_W)
+	_add_key_action("place_down", KEY_S)
+	_add_key_action("spin_left", KEY_LEFT)
+	_add_key_action("spin_right", KEY_RIGHT)
+	_add_key_action("spin_up", KEY_UP)
+	_add_key_action("spin_down", KEY_DOWN)
 	_add_key_action("charge_shot", KEY_SPACE)
 	_add_key_action("strike", KEY_ENTER)
 	_add_key_action("toggle_view", KEY_T)
 	_add_key_action("replay", KEY_R)
 	_add_key_action("reset_rack", KEY_ESCAPE)
+	_add_key_action("call_pocket", KEY_C)
 	_add_mouse_action("charge_shot", MOUSE_BUTTON_RIGHT)
 	_add_mouse_action("strike", MOUSE_BUTTON_LEFT)
 	_add_joy_axis_action("aim_left", JOY_AXIS_LEFT_X, -1.0)
 	_add_joy_axis_action("aim_right", JOY_AXIS_LEFT_X, 1.0)
-	_add_joy_axis_action("aim_up", JOY_AXIS_RIGHT_Y, -1.0)
-	_add_joy_axis_action("aim_down", JOY_AXIS_RIGHT_Y, 1.0)
+	_add_joy_axis_action("place_up", JOY_AXIS_LEFT_Y, -1.0)
+	_add_joy_axis_action("place_down", JOY_AXIS_LEFT_Y, 1.0)
+	_add_joy_axis_action("spin_left", JOY_AXIS_RIGHT_X, -1.0)
+	_add_joy_axis_action("spin_right", JOY_AXIS_RIGHT_X, 1.0)
+	_add_joy_axis_action("spin_up", JOY_AXIS_RIGHT_Y, -1.0)
+	_add_joy_axis_action("spin_down", JOY_AXIS_RIGHT_Y, 1.0)
 	_add_joy_axis_action("charge_shot", JOY_AXIS_TRIGGER_RIGHT, 1.0)
 	_add_joy_button_action("strike", JOY_BUTTON_RIGHT_SHOULDER)
 	_add_joy_button_action("toggle_view", JOY_BUTTON_Y)
 	_add_joy_button_action("replay", JOY_BUTTON_X)
 	_add_joy_button_action("reset_rack", JOY_BUTTON_BACK)
+	_add_joy_button_action("call_pocket", JOY_BUTTON_B)
 
 
 func _add_key_action(action: StringName, key: Key) -> void:
