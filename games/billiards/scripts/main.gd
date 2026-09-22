@@ -8,14 +8,16 @@ const BilliardsAIClass = preload("res://scripts/ai_opponent.gd")
 const CueControllerClass = preload("res://scripts/cue_controller.gd")
 const TrajectoryGuideClass = preload("res://scripts/trajectory_guide.gd")
 const ManorAudioClass = preload("res://scripts/manor_audio.gd")
+const TABLE_MODEL_PATH := "res://assets/models/spectral_billiards_table.glb"
+const CUE_MODEL_PATH := "res://assets/models/spectral_billiards_cue.glb"
 
 const TABLE_LENGTH := 8.8
 const TABLE_WIDTH := 4.4
 const BED_Y := 0.92
 const BALL_RADIUS := 0.1125
 const BALL_Y := BED_Y + BALL_RADIUS + 0.006
-const STOP_SPEED := 0.035
-const MAX_SHOT_IMPULSE := 4.2
+const STOP_SPEED := 0.05
+const MAX_SHOT_IMPULSE := 1.85
 
 enum GameState { MENU, BALL_IN_HAND, AIMING, AI_THINKING, ROLLING, REPLAY, MATCH_OVER }
 
@@ -40,6 +42,7 @@ var was_charging := false
 var stroke_armed := false
 var stroke_pull := 0.0
 var previous_stroke_axis := 0.0
+var stroke_needs_trigger_release := false
 var placement_velocity := Vector3.ZERO
 var shot_guide_enabled := true
 var settling_frames := 0
@@ -99,7 +102,7 @@ func _ready() -> void:
 	_build_ui()
 	_build_audio()
 	_show_mode_menu()
-	get_viewport().get_window().title = "Spectral Manor Billiards — Visual Geometry v0.6.1"
+	get_viewport().get_window().title = "Spectral Manor Billiards — Production Art v0.7B"
 
 
 func _physics_process(delta: float) -> void:
@@ -112,6 +115,8 @@ func _physics_process(delta: float) -> void:
 		return
 
 	replay_buffer.capture(balls)
+	if state == GameState.ROLLING:
+		_recover_out_of_bounds_cue_ball()
 	if state == GameState.AIMING:
 		_update_aiming(delta)
 	elif state == GameState.BALL_IN_HAND:
@@ -119,6 +124,8 @@ func _physics_process(delta: float) -> void:
 	elif state == GameState.AI_THINKING:
 		_update_ai_thinking(delta)
 	else:
+		# Keep the table view responsive while a shot is in motion.
+		_update_camera_controls(delta)
 		_update_rolling()
 	_update_camera(delta)
 
@@ -185,14 +192,25 @@ func _update_controller_stroke(delta: float) -> bool:
 		stroke_armed = false
 		return false
 	var device: int = joypads[0]
-	var trigger := Input.get_joy_axis(device, JOY_AXIS_TRIGGER_RIGHT)
+	var raw_trigger := Input.get_joy_axis(device, JOY_AXIS_TRIGGER_RIGHT)
+	# Xbox-compatible drivers report an idle trigger as either -1 or 0.
+	# Action strength handles calibrated devices; raw positive values provide a fallback.
+	var trigger := maxf(Input.get_action_strength("charge_shot"), clampf(raw_trigger, 0.0, 1.0))
+	var axis := Input.get_joy_axis(device, JOY_AXIS_RIGHT_Y)
+	return _process_controller_stroke(trigger, axis, delta)
+
+
+func _process_controller_stroke(trigger: float, raw_axis: float, delta: float) -> bool:
 	if trigger < 0.16:
 		if stroke_armed:
 			stroke_armed = false
 			stroke_pull = 0.0
 			charge = 0.0
+		stroke_needs_trigger_release = false
 		return false
-	var axis := Input.get_joy_axis(device, JOY_AXIS_RIGHT_Y)
+	if stroke_needs_trigger_release:
+		return false
+	var axis := 0.0 if absf(raw_axis) < 0.12 else raw_axis
 	if not stroke_armed:
 		stroke_armed = true
 		stroke_pull = 0.0
@@ -205,6 +223,7 @@ func _update_controller_stroke(delta: float) -> bool:
 		var power := clampf(maxf(-axis, forward_speed * 0.075) * 0.82 + stroke_pull * 0.18, 0.22, 1.0)
 		stroke_armed = false
 		stroke_pull = 0.0
+		stroke_needs_trigger_release = true
 		_strike(power)
 		return true
 	previous_stroke_axis = axis
@@ -223,19 +242,18 @@ func _update_human_trajectory(direction: Vector3) -> void:
 		trajectory_guide.hide_guide()
 		return
 	var segments: Array = []
-	var origin := cue_ball.global_position + Vector3.UP * 0.025
-	var ray_start := origin + direction * (BALL_RADIUS + 0.02)
-	var ray_end := ray_start + direction * 9.0
-	var query := PhysicsRayQueryParameters3D.create(ray_start, ray_end, 3, [cue_ball.get_rid()])
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	var contact: Vector3 = ray_end if hit.is_empty() else (hit["position"] as Vector3) + Vector3.UP * 0.025
+	var guide_y := BED_Y + 0.012
+	var origin := Vector3(cue_ball.global_position.x, guide_y, cue_ball.global_position.z)
+	var hit := _trajectory_hit(cue_ball.global_position, direction, [cue_ball.get_rid()], 9.0)
+	var contact: Vector3 = hit["endpoint"]
 	segments.append(PackedVector3Array([origin, contact]))
-	if not hit.is_empty() and hit.collider is SpectralBall:
-		var target := hit.collider as SpectralBall
-		var object_direction := target.global_position - cue_ball.global_position
+	if hit.get("collider") is SpectralBall:
+		var target := hit["collider"] as SpectralBall
+		var impact_center := Vector3(contact.x, BALL_Y, contact.z)
+		var object_direction := target.global_position - impact_center
 		object_direction.y = 0.0
 		object_direction = object_direction.normalized()
-		var object_start := target.global_position + Vector3.UP * 0.025
+		var object_start := Vector3(target.global_position.x, guide_y, target.global_position.z)
 		var object_end := _trajectory_ray_end(object_start, object_direction, [cue_ball.get_rid(), target.get_rid()], 4.8)
 		segments.append(PackedVector3Array([object_start, object_end]))
 		var cue_deflection := direction - object_direction * direction.dot(object_direction)
@@ -245,18 +263,82 @@ func _update_human_trajectory(direction: Vector3) -> void:
 			var deflect_start: Vector3 = contact
 			var deflect_end := _trajectory_ray_end(deflect_start, cue_deflection, [cue_ball.get_rid(), target.get_rid()], 2.3)
 			segments.append(PackedVector3Array([deflect_start, deflect_end]))
-	elif not hit.is_empty() and hit.has("normal"):
-		var reflected := direction.bounce(hit.normal).normalized()
+	elif hit.has("normal"):
+		var reflected := direction.bounce(hit["normal"]).normalized()
 		var bounce_end := _trajectory_ray_end(contact, reflected, [cue_ball.get_rid()], 2.8)
 		segments.append(PackedVector3Array([contact, bounce_end]))
 	trajectory_guide.show_segments(segments)
 
 
 func _trajectory_ray_end(start: Vector3, direction: Vector3, exclusions: Array[RID], distance: float) -> Vector3:
-	var finish := start + direction * distance
-	var query := PhysicsRayQueryParameters3D.create(start + direction * 0.03, finish, 3, exclusions)
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	return finish if hit.is_empty() else hit.position + Vector3.UP * 0.025
+	var physics_start := Vector3(start.x, BALL_Y, start.z)
+	return _trajectory_hit(physics_start, direction, exclusions, distance)["endpoint"]
+
+
+func _trajectory_hit(start: Vector3, direction: Vector3, exclusions: Array[RID], distance: float) -> Dictionary:
+	var flat_direction := Vector3(direction.x, 0.0, direction.z).normalized()
+	var best_distance := distance
+	var collider: Object = null
+	var collision_normal := Vector3.ZERO
+	var combined_radius := BALL_RADIUS * 2.0
+	for ball in balls:
+		if ball.pocketed or ball.get_rid() in exclusions:
+			continue
+		var offset := ball.global_position - start
+		offset.y = 0.0
+		var projection := offset.dot(flat_direction)
+		if projection <= 0.0 or projection > best_distance + combined_radius:
+			continue
+		var perpendicular_squared := offset.length_squared() - projection * projection
+		if perpendicular_squared > combined_radius * combined_radius:
+			continue
+		var travel := projection - sqrt(maxf(combined_radius * combined_radius - perpendicular_squared, 0.0))
+		if travel >= 0.0 and travel < best_distance:
+			best_distance = travel
+			collider = ball
+			var impact_center := start + flat_direction * travel
+			collision_normal = (impact_center - ball.global_position).normalized()
+
+	var ray_end := start + flat_direction * distance
+	var query := PhysicsRayQueryParameters3D.create(start + flat_direction * 0.01, ray_end, 2, exclusions)
+	var rail_hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if not rail_hit.is_empty():
+		var rail_normal: Vector3 = rail_hit["normal"]
+		var normal_alignment := maxf(absf(flat_direction.dot(rail_normal)), 0.15)
+		var rail_distance := start.distance_to(rail_hit["position"]) - BALL_RADIUS / normal_alignment
+		if rail_distance >= 0.0 and rail_distance < best_distance:
+			best_distance = rail_distance
+			collider = rail_hit["collider"]
+			collision_normal = rail_normal
+
+	var endpoint := start + flat_direction * best_distance
+	endpoint.y = BED_Y + 0.012
+	var result := {"endpoint": endpoint, "collider": collider}
+	if collision_normal.length_squared() > 0.0:
+		result["normal"] = collision_normal
+	return result
+
+
+func _recover_out_of_bounds_cue_ball() -> void:
+	if cue_ball == null or cue_ball.pocketed:
+		return
+	var position := cue_ball.global_position
+	var escaped := (
+		position.y < BED_Y - 0.45
+		or position.y > BED_Y + 1.25
+		or absf(position.x) > TABLE_LENGTH * 0.5 + 1.0
+		or absf(position.z) > TABLE_WIDTH * 0.5 + 1.0
+	)
+	if not escaped:
+		return
+	cue_ball.pocketed = true
+	cue_ball.freeze = true
+	cue_ball.visible = false
+	cue_ball.linear_velocity = Vector3.ZERO
+	cue_ball.angular_velocity = Vector3.ZERO
+	rules.record_pocket(0, -1)
+	shot_pocketed = true
+	_update_ui("Cue ball left the table — scratch")
 
 
 func _update_rolling() -> void:
@@ -269,7 +351,7 @@ func _update_rolling() -> void:
 		settling_frames = 0
 		return
 	settling_frames += 1
-	if settling_frames < 18:
+	if settling_frames < 12:
 		return
 	for ball in balls:
 		if not ball.pocketed:
@@ -312,7 +394,7 @@ func _strike_direction(direction: Vector3, power: float) -> void:
 	if rules.legal_targets(current_player) == [8]:
 		rules.call_pocket(called_pocket_index)
 	replay_buffer.mark_shot_start()
-	var impulse := direction * lerpf(0.65, MAX_SHOT_IMPULSE, power)
+	var impulse := direction * lerpf(0.34, MAX_SHOT_IMPULSE, power)
 	cue_ball.apply_central_impulse(impulse)
 	cue_ball.apply_torque_impulse(cue_controls.torque_for_shot(direction, power))
 	_pulse_controller(0.16 + power * 0.2, 0.12 + power * 0.32, 0.08 + power * 0.08)
@@ -711,7 +793,7 @@ func _build_world() -> void:
 	environment.background_color = Color("071015")
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color("29404a")
-	environment.ambient_light_energy = 0.34
+	environment.ambient_light_energy = 0.24
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.adjustment_enabled = true
 	environment.adjustment_contrast = 1.14
@@ -753,7 +835,7 @@ func _build_room() -> void:
 	for x in [-3.0, 0.0, 3.0]:
 		var lamp := OmniLight3D.new()
 		lamp.light_color = Color("ffad62")
-		lamp.light_energy = 5.0
+		lamp.light_energy = 3.4
 		lamp.omni_range = 6.0
 		lamp.shadow_enabled = true
 		lamp.position = Vector3(x, 4.4, 0.0)
@@ -764,13 +846,14 @@ func _build_room() -> void:
 		for z in [-3.8, 3.8]:
 			var sconce := OmniLight3D.new()
 			sconce.light_color = Color("ff7e3b")
-			sconce.light_energy = 2.2
+			sconce.light_energy = 1.5
 			sconce.omni_range = 4.0
 			sconce.position = Vector3(x, 2.8, z)
 			add_child(sconce)
 
 
 func _build_table() -> void:
+	var production_assets := ResourceLoader.exists(TABLE_MODEL_PATH)
 	var mahogany := _material(Color("2b0d08"), 0.3, 0.05)
 	var brass := _material(Color("9f6b28"), 0.2, 0.82)
 	var felt := _material(Color("073d35"), 0.88, 0.0)
@@ -778,31 +861,33 @@ func _build_table() -> void:
 	rubber.friction = 0.25
 	rubber.bounce = 0.78
 
-	_create_static_box("SlateBed", Vector3(TABLE_LENGTH, 0.22, TABLE_WIDTH), Vector3(0.0, BED_Y - 0.11, 0.0), felt, 2)
-	_create_mesh_box(Vector3(TABLE_LENGTH + 1.15, 0.38, TABLE_WIDTH + 1.15), Vector3(0.0, BED_Y - 0.36, 0.0), mahogany)
+	_create_static_box("SlateBed", Vector3(TABLE_LENGTH, 0.22, TABLE_WIDTH), Vector3(0.0, BED_Y - 0.11, 0.0), felt, 2, not production_assets)
+	if not production_assets:
+		_create_mesh_box(Vector3(TABLE_LENGTH + 1.15, 0.38, TABLE_WIDTH + 1.15), Vector3(0.0, BED_Y - 0.36, 0.0), mahogany)
 
 	# Cushions are split around corner and side-pocket openings.
 	for z in [-TABLE_WIDTH * 0.5 - 0.12, TABLE_WIDTH * 0.5 + 0.12]:
 		for x in [-2.25, 2.25]:
-			var rail := _create_static_box("LongCushion", Vector3(3.72, 0.22, 0.30), Vector3(x, BED_Y + 0.03, z), mahogany, 2)
+			var rail := _create_static_box("LongCushion", Vector3(3.72, 0.22, 0.30), Vector3(x, BED_Y + 0.03, z), mahogany, 2, not production_assets)
 			rail.physics_material_override = rubber
 	for x in [-TABLE_LENGTH * 0.5 - 0.12, TABLE_LENGTH * 0.5 + 0.12]:
-		var rail := _create_static_box("EndCushion", Vector3(0.30, 0.22, 3.55), Vector3(x, BED_Y + 0.03, 0.0), mahogany, 2)
+		var rail := _create_static_box("EndCushion", Vector3(0.30, 0.22, 3.55), Vector3(x, BED_Y + 0.03, 0.0), mahogany, 2, not production_assets)
 		rail.physics_material_override = rubber
 
-	for x in [-3.8, 3.8]:
-		for z in [-1.75, 1.75]:
+	if not production_assets:
+		for x in [-3.8, 3.8]:
+			for z in [-1.75, 1.75]:
 			# Keep the leg tops safely below the slate so they cannot z-fight
 			# through the felt as square corner artifacts.
-			_create_mesh_box(Vector3(0.52, 0.72, 0.52), Vector3(x, 0.36, z), mahogany)
-			var foot := MeshInstance3D.new()
-			var foot_mesh := SphereMesh.new()
-			foot_mesh.radius = 0.34
-			foot_mesh.height = 0.68
-			foot.mesh = foot_mesh
-			foot.material_override = brass
-			foot.position = Vector3(x, 0.12, z)
-			add_child(foot)
+				_create_mesh_box(Vector3(0.52, 0.72, 0.52), Vector3(x, 0.36, z), mahogany)
+				var foot := MeshInstance3D.new()
+				var foot_mesh := SphereMesh.new()
+				foot_mesh.radius = 0.34
+				foot_mesh.height = 0.68
+				foot.mesh = foot_mesh
+				foot.material_override = brass
+				foot.position = Vector3(x, 0.12, z)
+				add_child(foot)
 
 	pocket_positions.assign([
 		Vector3(-TABLE_LENGTH * 0.5, BALL_Y, -TABLE_WIDTH * 0.5),
@@ -813,10 +898,16 @@ func _build_table() -> void:
 		Vector3(TABLE_LENGTH * 0.5, BALL_Y, TABLE_WIDTH * 0.5),
 	])
 	for pocket_position in pocket_positions:
-		_build_pocket(pocket_position, brass)
+		_build_pocket(pocket_position, brass, not production_assets)
+	if production_assets:
+		var packed_table := load(TABLE_MODEL_PATH) as PackedScene
+		var table_model := packed_table.instantiate() as Node3D
+		table_model.name = "ProductionTable"
+		_tune_production_materials(table_model)
+		add_child(table_model)
 
 
-func _build_pocket(pocket_position: Vector3, brass: Material) -> void:
+func _build_pocket(pocket_position: Vector3, brass: Material, show_visual: bool = true) -> void:
 	var surface_position := Vector3(pocket_position.x, BED_Y, pocket_position.z)
 	var rim := MeshInstance3D.new()
 	rim.name = "RecessedPocketRim"
@@ -829,6 +920,7 @@ func _build_pocket(pocket_position: Vector3, brass: Material) -> void:
 	rim.material_override = brass
 	rim.position = surface_position - Vector3.UP * 0.018
 	rim.scale.y = 0.24
+	rim.visible = show_visual
 	add_child(rim)
 	var darkness := MeshInstance3D.new()
 	darkness.name = "PocketDrop"
@@ -839,6 +931,7 @@ func _build_pocket(pocket_position: Vector3, brass: Material) -> void:
 	darkness.mesh = dark_mesh
 	darkness.material_override = _material(Color("010203"), 1.0, 0.0)
 	darkness.position = surface_position - Vector3.UP * 0.019
+	darkness.visible = show_visual
 	add_child(darkness)
 
 	var area := Area3D.new()
@@ -900,8 +993,8 @@ func _create_ball(number: int, spawn_position: Vector3, color: Color) -> Spectra
 	ball.configure(number)
 	ball.position = spawn_position
 	ball.physics_material_override = PhysicsMaterial.new()
-	ball.physics_material_override.friction = 0.16
-	ball.physics_material_override.bounce = 0.94
+	ball.physics_material_override.friction = 0.22
+	ball.physics_material_override.bounce = 0.92
 
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.name = "BallShell"
@@ -939,30 +1032,7 @@ func _create_ball(number: int, spawn_position: Vector3, color: Color) -> Spectra
 	collision.shape = shape
 	ball.add_child(collision)
 
-	var medallion := MeshInstance3D.new()
-	medallion.name = "NumberMedallion"
-	var medallion_mesh := CylinderMesh.new()
-	medallion_mesh.top_radius = BALL_RADIUS * 0.30
-	medallion_mesh.bottom_radius = BALL_RADIUS * 0.30
-	medallion_mesh.height = 0.003
-	medallion_mesh.radial_segments = 32
-	medallion.mesh = medallion_mesh
-	medallion.material_override = _material(Color("f3e8ca"), 0.2, 0.08)
-	medallion.position = Vector3(0.0, BALL_RADIUS - 0.0015, 0.0)
-	ball.add_child(medallion)
-
-	var number_label := Label3D.new()
-	number_label.name = "SurfaceNumber"
-	number_label.text = "☾" if number == 0 else str(number)
-	number_label.font_size = 36
-	number_label.outline_size = 4
-	number_label.modulate = Color("171013")
-	number_label.outline_modulate = Color("e9d9b8")
-	number_label.position = Vector3(0.0, BALL_RADIUS + 0.0008, 0.0)
-	number_label.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
-	number_label.pixel_size = 0.00135
-	number_label.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	ball.add_child(number_label)
+	_build_ball_number_marking(ball, number)
 
 	add_child(ball)
 	balls.append(ball)
@@ -970,6 +1040,99 @@ func _create_ball(number: int, spawn_position: Vector3, color: Color) -> Spectra
 	if number == 0:
 		ball.contacted_ball.connect(_on_cue_contacted_ball)
 	return ball
+
+
+func _build_ball_number_marking(ball: SpectralBall, number: int) -> void:
+	var artwork := SubViewport.new()
+	artwork.name = "NumberArtwork"
+	artwork.size = Vector2i(128, 128)
+	artwork.disable_3d = true
+	artwork.transparent_bg = false
+	artwork.render_target_update_mode = SubViewport.UPDATE_ONCE
+	var background := ColorRect.new()
+	background.color = Color("f3e8ca")
+	background.size = Vector2(128.0, 128.0)
+	artwork.add_child(background)
+	var number_label := Label.new()
+	number_label.name = "SurfaceNumber"
+	number_label.text = "☾" if number == 0 else str(number)
+	number_label.position = Vector2.ZERO
+	number_label.size = Vector2(128.0, 128.0)
+	number_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	number_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	number_label.add_theme_font_size_override("font_size", 62 if number < 10 else 50)
+	number_label.add_theme_constant_override("outline_size", 5)
+	number_label.add_theme_color_override("font_color", Color("171013"))
+	number_label.add_theme_color_override("font_outline_color", Color("c9ae78"))
+	artwork.add_child(number_label)
+	ball.add_child(artwork)
+
+	var medallion := MeshInstance3D.new()
+	medallion.name = "NumberMedallion"
+	medallion.mesh = _create_number_cap_mesh()
+	var material := StandardMaterial3D.new()
+	material.albedo_texture = artwork.get_texture()
+	material.roughness = 0.18
+	material.metallic = 0.06
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	medallion.material_override = material
+	medallion.rotation.z = PI * 0.5
+	ball.add_child(medallion)
+	var opposite_medallion := MeshInstance3D.new()
+	opposite_medallion.name = "NumberMedallionOpposite"
+	opposite_medallion.mesh = medallion.mesh
+	opposite_medallion.material_override = material
+	opposite_medallion.rotation.z = -PI * 0.5
+	ball.add_child(opposite_medallion)
+
+
+func _create_number_cap_mesh() -> ArrayMesh:
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	var segment_count := 32
+	var ring_count := 5
+	var cap_angle := 0.34
+	var surface_radius := BALL_RADIUS + 0.00035
+	vertices.append(Vector3(0.0, surface_radius, 0.0))
+	normals.append(Vector3.UP)
+	uvs.append(Vector2(0.5, 0.5))
+	for ring in range(1, ring_count + 1):
+		var ring_ratio := float(ring) / float(ring_count)
+		var angle := cap_angle * ring_ratio
+		var y := cos(angle) * surface_radius
+		var ring_radius := sin(angle) * surface_radius
+		for segment in segment_count:
+			var azimuth := TAU * float(segment) / float(segment_count)
+			var normal := Vector3(cos(azimuth) * sin(angle), cos(angle), sin(azimuth) * sin(angle))
+			vertices.append(Vector3(cos(azimuth) * ring_radius, y, sin(azimuth) * ring_radius))
+			normals.append(normal)
+			uvs.append(Vector2(0.5 + cos(azimuth) * ring_ratio * 0.5, 0.5 - sin(azimuth) * ring_ratio * 0.5))
+	for segment in segment_count:
+		indices.append(0)
+		indices.append(1 + segment)
+		indices.append(1 + (segment + 1) % segment_count)
+	for ring in range(1, ring_count):
+		var inner_start := 1 + (ring - 1) * segment_count
+		var outer_start := 1 + ring * segment_count
+		for segment in segment_count:
+			var next_segment := (segment + 1) % segment_count
+			indices.append(inner_start + segment)
+			indices.append(outer_start + segment)
+			indices.append(outer_start + next_segment)
+			indices.append(inner_start + segment)
+			indices.append(outer_start + next_segment)
+			indices.append(inner_start + next_segment)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 
 func _stripe_material(color: Color) -> ShaderMaterial:
@@ -1018,18 +1181,26 @@ func _build_camera_and_aiming() -> void:
 
 	cue_visual = Node3D.new()
 	cue_visual.name = "PlayerCue"
-	var ebony := _material(Color("130d12"), 0.24, 0.18)
-	var burgundy := _material(Color("551018"), 0.2, 0.22)
-	var leather := _material(Color("241419"), 0.78, 0.02)
-	var maple := _material(Color("d9bd8c"), 0.3, 0.04)
-	var ivory := _material(Color("eee2c6"), 0.2, 0.06)
-	var tip_blue := _material(Color("2f7891"), 0.62, 0.02)
-	_add_cue_section("Butt", 0.94, 0.78, 0.047, 0.057, ebony)
-	_add_cue_section("Inlay", 0.22, 0.20, 0.044, 0.048, burgundy)
-	_add_cue_section("LeatherWrap", 0.46, -0.14, 0.039, 0.044, leather)
-	_add_cue_section("MapleShaft", 0.92, -0.83, 0.022, 0.038, maple)
-	_add_cue_section("Ferrule", 0.10, -1.34, 0.022, 0.023, ivory)
-	_add_cue_section("ChalkedTip", 0.045, -1.4125, 0.020, 0.022, tip_blue)
+	if ResourceLoader.exists(CUE_MODEL_PATH):
+		var packed_cue := load(CUE_MODEL_PATH) as PackedScene
+		var cue_model := packed_cue.instantiate() as Node3D
+		cue_model.name = "ProductionCue"
+		cue_model.rotation.z = -PI * 0.5
+		_tune_production_materials(cue_model)
+		cue_visual.add_child(cue_model)
+	else:
+		var ebony := _material(Color("130d12"), 0.24, 0.18)
+		var burgundy := _material(Color("551018"), 0.2, 0.22)
+		var leather := _material(Color("241419"), 0.78, 0.02)
+		var maple := _material(Color("d9bd8c"), 0.3, 0.04)
+		var ivory := _material(Color("eee2c6"), 0.2, 0.06)
+		var tip_blue := _material(Color("2f7891"), 0.62, 0.02)
+		_add_cue_section("Butt", 0.94, 0.78, 0.047, 0.057, ebony)
+		_add_cue_section("Inlay", 0.22, 0.20, 0.044, 0.048, burgundy)
+		_add_cue_section("LeatherWrap", 0.46, -0.14, 0.039, 0.044, leather)
+		_add_cue_section("MapleShaft", 0.92, -0.83, 0.022, 0.038, maple)
+		_add_cue_section("Ferrule", 0.10, -1.34, 0.022, 0.023, ivory)
+		_add_cue_section("ChalkedTip", 0.045, -1.4125, 0.020, 0.022, tip_blue)
 	add_child(cue_visual)
 
 
@@ -1397,7 +1568,7 @@ func _pulse_controller(weak: float, strong: float, duration: float) -> void:
 	Input.start_joy_vibration(joypads[0], clampf(weak, 0.0, 1.0), clampf(strong, 0.0, 1.0), duration)
 
 
-func _create_static_box(node_name: String, size: Vector3, position: Vector3, material: Material, layer: int) -> StaticBody3D:
+func _create_static_box(node_name: String, size: Vector3, position: Vector3, material: Material, layer: int, mesh_visible: bool = true) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.name = node_name
 	body.collision_layer = layer
@@ -1408,6 +1579,7 @@ func _create_static_box(node_name: String, size: Vector3, position: Vector3, mat
 	mesh.size = size
 	mesh_instance.mesh = mesh
 	mesh_instance.material_override = material
+	mesh_instance.visible = mesh_visible
 	body.add_child(mesh_instance)
 	var collision := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
@@ -1427,6 +1599,41 @@ func _create_mesh_box(size: Vector3, position: Vector3, material: Material) -> M
 	instance.position = position
 	add_child(instance)
 	return instance
+
+
+func _tune_production_materials(node: Node) -> void:
+	if node is MeshInstance3D:
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh:
+			for surface_index in mesh_instance.mesh.get_surface_count():
+				var source := mesh_instance.get_active_material(surface_index)
+				if not source is StandardMaterial3D:
+					continue
+				var material := source.duplicate() as StandardMaterial3D
+				var key := material.resource_name.to_lower()
+				var textured := material.albedo_texture != null
+				if "felt" in key:
+					material.albedo_color = Color("d8e7dd") if textured else Color("07382f")
+					material.roughness = 0.88
+				elif "mahogany" in key:
+					material.albedo_color = Color("d9b0a5") if textured else Color("300906")
+					material.roughness = 0.34
+				elif "walnut" in key:
+					material.albedo_color = Color("c5aaa5") if textured else Color("110506")
+					material.roughness = 0.46
+				elif "brass" in key:
+					material.albedo_color = Color("86551f")
+					material.metallic = 0.82
+					material.roughness = 0.26
+				elif "leather" in key or "ebony" in key:
+					material.albedo_color = Color("aaa2a8") if textured else Color("0b0709")
+					material.roughness = 0.5
+				elif "burgundy" in key:
+					material.albedo_color = Color("410810")
+					material.roughness = 0.3
+				mesh_instance.set_surface_override_material(surface_index, material)
+	for child in node.get_children():
+		_tune_production_materials(child)
 
 
 func _material(color: Color, roughness: float, metallic: float) -> StandardMaterial3D:

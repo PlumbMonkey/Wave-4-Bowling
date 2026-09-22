@@ -28,6 +28,20 @@ func _run() -> void:
 	game._begin_ball_in_hand(false)
 	_assert(game.state == game.GameState.AIMING, "Computer chooses and confirms ball placement")
 	_assert(game._is_valid_cue_placement(game.cue_ball.global_position), "Computer placement does not overlap another ball")
+
+	game._start_match(EightBallRules.Mode.PRACTICE)
+	game._confirm_ball_in_hand()
+	game.state = game.GameState.ROLLING
+	game.rules.begin_shot()
+	game.cue_ball.global_position = Vector3(0.0, game.BED_Y - 0.8, 0.0)
+	game.cue_ball.linear_velocity = Vector3(0.0, -2.0, 0.0)
+	game._recover_out_of_bounds_cue_ball()
+	_assert(game.cue_ball.pocketed, "An escaped cue ball is removed from the active shot")
+	_assert(0 in game.rules.shot_pockets, "An escaped cue ball is recorded as a scratch")
+	for frame in 18:
+		game._update_rolling()
+	_assert(game.state == game.GameState.BALL_IN_HAND, "An off-table scratch recovers to ball in hand")
+	_assert(game.cue_ball.visible and game.cue_ball.freeze, "The recovered cue ball is ready for placement")
 	game.queue_free()
 	await process_frame
 	if failures == 0:

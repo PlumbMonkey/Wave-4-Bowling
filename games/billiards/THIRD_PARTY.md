@@ -31,3 +31,11 @@ No third-party source code is currently copied into the runtime. The following p
 - Source: https://github.com/Teddymops/3d-pool-game
 - License: not clearly declared in the repository
 - Decision: conceptual reference only. No code or assets may be copied without a verified license or direct permission.
+
+## Pool-table model research
+
+- [OpenGameArt low-poly pool table](https://opengameart.org/content/pool-table-low-poly) — CC0; suitable as a proportion reference, but below the project's visual-detail target.
+- [OpenGameArt billiards pack](https://opengameart.org/content/billiards-pack) — CC0; useful as a compatibility/reference pack, but its style does not match Spectral Manor.
+- [Sketchfab Pool Table](https://sketchfab.com/3d-models/pool-table-fdacab7310cc4ad7811cb7eff95f486b) — CC BY-NC; rejected because the noncommercial restriction is unnecessarily limiting.
+- [3D CAD Browser billiard table](https://www.3dcadbrowser.com/3d-model/billiard-table) — royalty-free use but no source redistribution; rejected for a repository that retains editable production sources.
+- Decision: no third-party table model was imported. The v0.7B table, geometry, materials, and texture maps are original project assets built by the deterministic Blender generator.

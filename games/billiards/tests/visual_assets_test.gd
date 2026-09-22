@@ -18,14 +18,28 @@ func _run() -> void:
 	_assert(solid != null and solid.find_child("StripeBand", false, false) == null, "Balls 1–7 use solid shells")
 	_assert(stripe != null and stripe.find_child("StripeBand", false, false) != null, "Balls 9–15 have a distinct equatorial stripe")
 	_assert(eight != null and eight.find_child("StripeBand", false, false) == null, "The eight ball remains a solid shell")
-	var number_label := solid.find_child("SurfaceNumber", false, false) as Label3D
+	var number_label := solid.find_child("SurfaceNumber", true, false) as Label
 	var medallion := solid.find_child("NumberMedallion", false, false) as MeshInstance3D
-	_assert(number_label != null and medallion != null, "Ball number is mounted on a surface medallion")
-	_assert(number_label.position.y - game.BALL_RADIUS < 0.002, "Ball number sits flush with the sphere")
+	var opposite_medallion := solid.find_child("NumberMedallionOpposite", false, false) as MeshInstance3D
+	_assert(number_label != null and medallion != null, "Ball number is rendered into a surface medallion")
+	_assert(opposite_medallion != null, "Ball number is marked on both opposing faces")
+	var medallion_faces := medallion.mesh.get_faces()
+	_assert(medallion.mesh.get_aabb().size.y > 0.004, "Ball number medallion follows the sphere curvature")
+	_assert(absf(medallion_faces[0].length() - game.BALL_RADIUS) < 0.001, "Ball number marking sits on the sphere surface")
 
-	var expected_cue_parts := ["Butt", "Inlay", "LeatherWrap", "MapleShaft", "Ferrule", "ChalkedTip"]
+	var production_table: Node = game.find_child("ProductionTable", true, false)
+	_assert(production_table != null, "Blender production table is active")
+	for detail in ["LongRailSight*", "LongApronInset_Front_0", "Leg0_Filigree", "Pocket0_NetV0", "Pocket0_WoodSurround", "Pocket0_BrassSurround"]:
+		_assert(production_table.find_child(detail, true, false) != null, "Production table includes %s" % detail)
+	var production_slate := production_table.find_child("Table_Slate", true, false) as MeshInstance3D
+	var slate_material := production_slate.get_active_material(0) as StandardMaterial3D
+	_assert(slate_material.albedo_texture != null, "Production cloth uses its original felt texture")
+	_assert(production_slate.mesh.get_faces().size() > 36, "Production cloth mesh includes cut pocket openings")
+	var production_cue: Node = game.cue_visual.find_child("ProductionCue", false, false)
+	_assert(production_cue != null, "Blender production cue is active")
+	var expected_cue_parts := ["Cue_Butt", "Cue_Inlay", "Cue_LeatherWrap", "Cue_MapleShaft", "Cue_Ferrule", "Cue_ChalkedTip"]
 	for part in expected_cue_parts:
-		_assert(game.cue_visual.find_child(part, false, false) != null, "Cue includes %s" % part)
+		_assert(game.cue_visual.find_child(part, true, false) != null, "Cue includes %s" % part)
 
 	var rim := game.find_child("RecessedPocketRim", true, false) as MeshInstance3D
 	var drop := game.find_child("PocketDrop", true, false) as MeshInstance3D

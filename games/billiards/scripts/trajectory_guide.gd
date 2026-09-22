@@ -10,17 +10,17 @@ func _ready() -> void:
 	for index in MAX_SEGMENTS:
 		var beam := MeshInstance3D.new()
 		var mesh := CylinderMesh.new()
-		mesh.top_radius = 0.013
-		mesh.bottom_radius = 0.013
+		mesh.top_radius = 0.024
+		mesh.bottom_radius = 0.024
 		mesh.height = 1.0
 		mesh.radial_segments = 8
 		beam.mesh = mesh
 		var material := StandardMaterial3D.new()
 		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		material.albedo_color = Color(0.38, 0.91, 1.0, 0.92)
+		material.albedo_color = Color(0.38, 0.91, 1.0, 0.48)
 		material.emission_enabled = true
 		material.emission = Color(0.22, 0.82, 1.0)
-		material.emission_energy_multiplier = 2.8
+		material.emission_energy_multiplier = 0.85
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		beam.material_override = material
 		beam.visible = false

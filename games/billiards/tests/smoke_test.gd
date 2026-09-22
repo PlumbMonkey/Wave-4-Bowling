@@ -21,6 +21,26 @@ func _run() -> void:
 	game._strike(0.5)
 	await physics_frame
 	_assert(game.cue_ball.linear_velocity.length() > 0.05, "Cue strike applies a physical impulse")
+	var simulated_speed: float = game.MAX_SHOT_IMPULSE / game.cue_ball.mass
+	for frame in 480:
+		simulated_speed = game.cue_ball.rolling_speed_after_step(simulated_speed, 1.0 / 60.0)
+		simulated_speed *= exp(-game.cue_ball.linear_damp / 60.0)
+	_assert(simulated_speed < game.STOP_SPEED, "A maximum-power ball settles within eight simulated seconds")
+	for ball in game.balls:
+		if ball != game.cue_ball:
+			ball.pocketed = true
+			ball.freeze = true
+			ball.visible = false
+	game.cue_ball.global_position = Vector3(-2.8, game.BALL_Y, 0.0)
+	game.cue_ball.linear_velocity = Vector3.ZERO
+	game.cue_ball.angular_velocity = Vector3.ZERO
+	game.state = game.GameState.AIMING
+	game._strike(1.0)
+	var settling_frame_count := 0
+	while settling_frame_count < 480 and (game.cue_ball.linear_velocity.length() > game.STOP_SPEED or game.cue_ball.angular_velocity.length() > 0.12):
+		await physics_frame
+		settling_frame_count += 1
+	_assert(settling_frame_count < 480, "An actual maximum-power shot settles within eight seconds")
 	game.queue_free()
 	await process_frame
 	print("SMOKE TEST PASSED")

@@ -2,9 +2,9 @@
 
 A cinematic gothic 3D eight-ball game built with Godot, featuring spectral physics, gamepad-first controls, and instant replays.
 
-## First playable
+## v0.7B production art and controller milestone
 
-The current vertical slice is generated procedurally at runtime and includes:
+The current vertical slice combines deterministic gameplay geometry with Blender-authored production visuals and includes:
 
 - a complete 16-ball rack with six functional pockets;
 - built-in Jolt rigid-body physics on Godot 4.7;
@@ -32,6 +32,16 @@ The current vertical slice is generated procedurally at runtime and includes:
 - flush surface number medallions that rotate with each ball;
 - a tapered six-part cue with ebony butt, inlay, leather wrap, maple shaft, ferrule, and chalked tip;
 - a regulation 2:1 playing surface with correctly scaled, recessed pocket openings;
+- a Blender-authored gothic table with turned legs, carved aprons, brass trim, and hanging pocket nets;
+- a Blender-authored tapered cue with layered butt, inlay, leather wrap, maple shaft, ferrule, and chalked tip;
+- source `.blend` and deterministic Blender 5.2 rebuild script kept with the project;
+- original wood-grain, felt-fiber, and leather textures generated specifically for the project;
+- camera control during live shots and driver-tolerant RT pull-back/push-forward cue strokes;
+- automatic off-table cue-ball scratch recovery into ball-in-hand placement;
+- ball-radius-aware cue/object-ball and cushion trajectory prediction;
+- physically cut felt openings with rounded exterior wood and brass pocket surrounds;
+- cloth rolling resistance, progressive spin damping, and rebalanced shot impulses for prompt turn completion;
+- opposing curved number patches rendered directly on each ball surface instead of floating 3D labels;
 - D-pad/arrow-key top, draw, and side English with physical torque;
 - legal-break validation with distinct rail-contact counting;
 - called-pocket eight-ball play and eight-on-break respotting;
@@ -58,6 +68,14 @@ Godot_v4.7.2-stable_win64.exe --path <project-folder>
 ![Cinematic pocket replay v0.6](docs/cinematic-replay.png)
 
 ![Visual geometry corrections v0.6.1](docs/visual-geometry-0.6.1.png)
+
+![Production table and cue v0.7B in game](docs/production-assets-v07b.png)
+
+![Blender production render v0.7B](docs/blender-art-pass-v07b.png)
+
+![Curved ball markings v0.7.3](docs/ball-markings-v073.png)
+
+The editable Blender scene is `assets/source/spectral_billiards_v07b.blend`. See [ASSET_PIPELINE.md](ASSET_PIPELINE.md) for rebuild and export instructions.
 
 ### Smoke test
 
@@ -93,9 +111,9 @@ The supplied concept images are preserved under `docs/reference/`. They are visu
 
 ## Next production passes
 
-1. Replace the procedural room and table with optimized Blender assets.
-2. Add multi-rail/combinations only after one-cushion bank accuracy is playtested.
-3. Tune spin decay, cushion transfer, table friction, and shot strength from controller playtesting.
+1. Conduct controller playtesting and tune spin decay, cushion transfer, table friction, and shot strength.
+2. Replace the remaining procedural manor room with a modular Blender environment and optimized lighting.
+3. Add multi-rail/combinations only after one-cushion bank accuracy is playtested.
 4. Replace the procedural audio sources with recorded production resin, rubber, cloth, and ambience layers.
 5. Add accessibility settings, save data, export presets, and optional GIF highlights.
 
